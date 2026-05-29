@@ -14,6 +14,7 @@ public class BankAccount {
     private final List<Transaction> transactionHistory;
     public static final double MINIMUM_DEPOSIT = 1.00;
     public static final double INITIAL_MIN_DEPOSIT = 5.00;
+    public static final double MINIMUM_WITHDRAWAL = 1.00;
 
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit) {
         if (initialDeposit < INITIAL_MIN_DEPOSIT) {
@@ -42,8 +43,8 @@ public class BankAccount {
     }
 
     public synchronized void withdraw(double amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("Withdrawal amount must be greater than 0");
+        if (amount < MINIMUM_WITHDRAWAL) {
+            throw new IllegalArgumentException("Withdrawal amount must be greater or equal to " + MINIMUM_WITHDRAWAL);
         }
 
         // Rule Check 1: Insufficient Funds
