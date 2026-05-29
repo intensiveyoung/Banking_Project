@@ -92,5 +92,6 @@ class BankAccountTest {
         Boolean accountsUnique = !accountNoLimit.getAccountNumber().equals(accountWithLimit.getAccountNumber());
         assertEquals(accountsUnique, true);
         assertEquals(accountNoLimit.getAccountNumber(), "1001");
+        assertEquals(accountWithLimit.getAccountNumber(), "1002");
     }
 }
