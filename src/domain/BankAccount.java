@@ -34,7 +34,7 @@ public class BankAccount {
 
     public synchronized void deposit(double amount) {
         if (amount < MINIMUM_DEPOSIT) {
-            throw new IllegalArgumentException("Minimum deposit amount is " + MINIMUM_DEPOSIT);
+            throw new IllegalArgumentException("Minimum deposit amount is " + MoneyUtil.format(MINIMUM_DEPOSIT));
         }
         balance += amount;
         transactionHistory.add(new Transaction(
@@ -44,7 +44,7 @@ public class BankAccount {
 
     public synchronized void withdraw(double amount) {
         if (amount < MINIMUM_WITHDRAWAL) {
-            throw new IllegalArgumentException("Withdrawal amount must be greater or equal to " + MINIMUM_WITHDRAWAL);
+            throw new IllegalArgumentException("Withdrawal amount must be greater or equal to " + MoneyUtil.format(MINIMUM_WITHDRAWAL));
         }
 
         // Rule Check 1: Insufficient Funds
