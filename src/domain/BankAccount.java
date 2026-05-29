@@ -12,10 +12,12 @@ public class BankAccount {
     private double balance;
     private final Double dailyWithdrawalLimit; // null means no limit
     private final List<Transaction> transactionHistory;
+    public static final double MINIMUM_DEPOSIT = 1.00;
+    public static final double INITIAL_MIN_DEPOSIT = 5.00;
 
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit) {
-        if (initialDeposit < 5.00) {
-            throw new IllegalArgumentException("Initial deposit must be at least $5.00");
+        if (initialDeposit < INITIAL_MIN_DEPOSIT) {
+            throw new IllegalArgumentException("Initial deposit must be at least " + INITIAL_MIN_DEPOSIT);
         }
         this.accountNumber = accountNumber;
         this.ownerName = ownerName;
@@ -30,8 +32,8 @@ public class BankAccount {
     }
 
     public synchronized void deposit(double amount) {
-        if (amount < 5.00) {
-            throw new IllegalArgumentException("Minimum deposit amount is $5.00");
+        if (amount < MINIMUM_DEPOSIT) {
+            throw new IllegalArgumentException("Minimum deposit amount is " + MINIMUM_DEPOSIT);
         }
         balance += amount;
         transactionHistory.add(new Transaction(
