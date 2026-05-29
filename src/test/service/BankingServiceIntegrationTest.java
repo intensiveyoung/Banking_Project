@@ -13,7 +13,9 @@ class BankingServiceIntegrationTest {
     private BankingService service;
 
     @BeforeEach
+
     void setUp() {
+        AccountNumberGenerator.reset();
         service = new BankingService();
     }
 
@@ -49,6 +51,20 @@ class BankingServiceIntegrationTest {
         assertEquals(TransactionType.WITHDRAWAL, failedTx.getType());
         assertEquals(TransactionStatus.FAILED, failedTx.getStatus());
         assertNull(failedTx.getResultingBalance(), "Failed transactions must show null balance per requirements");
+    }
+
+    @Test
+    @DisplayName("Integration Test: Verify Account Numbers increment sequentially across users")
+    void testSequentialAccountIncrements() {
+        BankingService service2 = new BankingService();
+
+        String firstAcc = service.openAccount("Bob", 10.00, null);
+        String secondAcc = service2.openAccount("Charlie", 20.00, null);
+
+        int firstNum = Integer.parseInt(firstAcc);
+        int secondNum = Integer.parseInt(secondAcc);
+
+        assertEquals(1, secondNum - firstNum, "Account numbers must be strictly sequential");
     }
 
     @Test
