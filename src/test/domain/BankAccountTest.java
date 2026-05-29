@@ -14,8 +14,8 @@ class BankAccountTest {
 
     @BeforeEach
     void setUp() {
-        accountNoLimit = new BankAccount("1001", "Alice", 100.00, null);
-        accountWithLimit = new BankAccount("1002", "Bob", 100.00, 50.00);
+        accountNoLimit = new BankAccount(AccountNumberGenerator.getNextAccountNumber(), "Alice", 100.00, null);
+        accountWithLimit = new BankAccount(AccountNumberGenerator.getNextAccountNumber(), "Bob", 100.00, 50.00);
     }
 
     @Test
@@ -84,5 +84,13 @@ class BankAccountTest {
         List<Transaction> history = accountWithLimit.getTransactionHistory();
         Transaction failedTx = history.get(history.size() - 1);
         assertEquals(TransactionStatus.FAILED, failedTx.getStatus());
+    }
+
+    @Test
+    @DisplayName("Should create unique account numbers")
+    void testUniqueAccountNumbers() {
+        Boolean accountsUnique = !accountNoLimit.getAccountNumber().equals(accountWithLimit.getAccountNumber());
+        assertEquals(accountsUnique, true);
+        assertEquals(accountNoLimit.getAccountNumber(), "1001");
     }
 }
