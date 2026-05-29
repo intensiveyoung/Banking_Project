@@ -14,8 +14,8 @@ class BankAccountTest {
 
     @BeforeEach
     void setUp() {
-        accountNoLimit = new BankAccount(AccountNumberGenerator.getNextAccountNumber(), "Alice", 100.00, null);
-        accountWithLimit = new BankAccount(AccountNumberGenerator.getNextAccountNumber(), "Bob", 100.00, 50.00);
+        accountNoLimit = new BankAccount("1001", "Alice", 100.00, null);
+        accountWithLimit = new BankAccount("1002", "Bob", 100.00, 50.00);
     }
 
     @Test
@@ -29,7 +29,7 @@ class BankAccountTest {
     @DisplayName("Should fail account creation if initial deposit is under $5.00")
     void testInvalidAccountCreation() {
         assertThrows(IllegalArgumentException.class, () -> {
-            new BankAccount("1003", "Charlie", 4.99, null);
+            new BankAccount("1004", "Charlie", 4.99, null);
         });
     }
 
@@ -89,9 +89,8 @@ class BankAccountTest {
     @Test
     @DisplayName("Should create unique account numbers")
     void testUniqueAccountNumbers() {
-        Boolean accountsUnique = !accountNoLimit.getAccountNumber().equals(accountWithLimit.getAccountNumber());
-        assertEquals(accountsUnique, true);
-        assertEquals(accountNoLimit.getAccountNumber(), "1001");
-        assertEquals(accountWithLimit.getAccountNumber(), "1002");
+        assertNotEquals(accountNoLimit.getAccountNumber(), accountWithLimit.getAccountNumber());
+        assertEquals("1001", accountNoLimit.getAccountNumber());
+        assertEquals("1002", accountWithLimit.getAccountNumber());
     }
 }
