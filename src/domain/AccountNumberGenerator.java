@@ -13,4 +13,8 @@ public class AccountNumberGenerator {
     public static String getNextAccountNumber() {
         return String.valueOf(counter.incrementAndGet());
     }
+
+    public static void reset() {
+        counter.set(1000);  // FOR TESTING PURPOSES ONLY
+    }
 }
