@@ -9,8 +9,8 @@ public class BankingService {
     private BankAccount activeAccount;
 
     /**
-     * Opens a new basic savings account in the system.
-     * @return The unique account number generated for this account.
+     * Opens a new basic savings account in the system
+     * @return The unique sequential account number generated for this account.
      */
     public String openAccount(String ownerName, double initialDeposit, Double dailyLimit) {
         String accNum = AccountNumberGenerator.getNextAccountNumber();
