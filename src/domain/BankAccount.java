@@ -16,6 +16,7 @@ public class BankAccount {
     private final Clock clock; // time source dependency
     public static final double MINIMUM_DEPOSIT = 1.00;
     public static final double INITIAL_MIN_DEPOSIT = 5.00;
+    public static final double MINIMUM_WITHDRAWAL = 1.00;
 
     // Backwards compatibility constructor (defaults to real system time zone)
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit) {
@@ -51,8 +52,8 @@ public class BankAccount {
     }
 
     public synchronized void withdraw(double amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("Withdrawal amount must be greater than 0");
+        if (amount < MINIMUM_WITHDRAWAL) {
+            throw new IllegalArgumentException("Withdrawal amount must be greater or equal to " + MoneyUtil.format(MINIMUM_WITHDRAWAL));
         }
 
         // Rule Check 1: Insufficient Funds
