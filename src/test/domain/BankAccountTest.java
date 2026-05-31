@@ -83,6 +83,14 @@ class BankAccountTest {
     }
 
     @Test
+    @DisplayName("Should create unique account numbers")
+    void testUniqueAccountNumbers() {
+        assertNotEquals(accountNoLimit.getAccountNumber(), accountWithLimit.getAccountNumber());
+        assertEquals("1001", accountNoLimit.getAccountNumber());
+        assertEquals("1002", accountWithLimit.getAccountNumber());
+    }
+
+    @Test
     @DisplayName("Should maintain accurate daily limit verification across artificial time boundaries")
     void testDeterministicTimeDailyLimit() {
         // Creating a frozen clock snapshot at an exact instant (2026-05-31 at 12:00:00 UTC)

@@ -24,8 +24,8 @@ public class BankAccount {
 
     // Master dependency-injected constructor used for deterministic testing
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit, Clock clock) {
-        if (initialDeposit < BankAccount.MINIMUM_DEPOSIT) {
-            throw new IllegalArgumentException("Initial deposit must be at least " + BankAccount.INITIAL_MIN_DEPOSIT);
+        if (initialDeposit < BankAccount.INITIAL_MIN_DEPOSIT) {
+            throw new IllegalArgumentException("Initial deposit must be at least " + MoneyUtil.format(BankAccount.INITIAL_MIN_DEPOSIT));
         }
         this.accountNumber = accountNumber;
         this.ownerName = ownerName;
@@ -42,7 +42,7 @@ public class BankAccount {
 
     public synchronized void deposit(double amount) {
         if (amount < BankAccount.MINIMUM_DEPOSIT) {
-            throw new IllegalArgumentException("Minimum deposit amount is " + BankAccount.MINIMUM_DEPOSIT);
+            throw new IllegalArgumentException("Minimum deposit amount is " + MoneyUtil.format(BankAccount.MINIMUM_DEPOSIT));
         }
         balance += amount;
         transactionHistory.add(new Transaction(
