@@ -3,6 +3,9 @@ package domain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -92,5 +95,31 @@ class BankAccountTest {
         assertNotEquals(accountNoLimit.getAccountNumber(), accountWithLimit.getAccountNumber());
         assertEquals("1001", accountNoLimit.getAccountNumber());
         assertEquals("1002", accountWithLimit.getAccountNumber());
+    }
+
+    @Test
+    @DisplayName("Should maintain accurate daily limit verification across artificial time boundaries")
+    void testDeterministicTimeDailyLimit() {
+        // Creating a frozen clock snapshot at an exact instant (2026-05-31 at 12:00:00 UTC)
+        java.time.Instant testingInstant = java.time.Instant.parse("2026-05-31T12:00:00Z");
+        java.time.ZoneId utcZone = java.time.ZoneId.of("UTC");
+        Clock frozenClock = Clock.fixed(testingInstant, utcZone);
+
+        // Instantiating account with the frozen clock and a $50 daily withdrawal limit
+        BankAccount timeLockedAccount = new BankAccount("9999", "TimeTraveler", 200.00, 50.00, frozenClock);
+
+        // Making  valid withdrawal on this specific date and time
+        timeLockedAccount.withdraw(30.00);
+        assertEquals(170.00, timeLockedAccount.getBalance());
+
+        // Attempting to breach the daily limit on the same frozen date boundary (Expecting failure)
+        assertThrows(DailyLimitExceededException.class, () -> timeLockedAccount.withdraw(25.00));
+
+        // Asserting the ledger timestamp matches our injected frozen date precisely
+        List<Transaction> history = timeLockedAccount.getTransactionHistory();
+        Transaction withdrawalTx = history.get(1); // Index 0 is initial deposit, Index 1 is the withdrawal
+
+        LocalDateTime expectedTime = LocalDateTime.of(2026, 5, 31, 12, 0, 0);
+        assertEquals(expectedTime, withdrawalTx.getTimestamp(), "The logged transaction timestamp must match the frozen mock clock exactly");
     }
 }
