@@ -1,3 +1,4 @@
+import domain.AccountNumberGenerator;
 import domain.Transaction;
 import domain.TransactionStatus;
 import service.BankingService;
@@ -39,6 +40,7 @@ public class App {
                     case "5" -> handleTransactionHistory();
                     case "6" -> {
                         System.out.println("\nThank you for banking with us. Goodbye!");
+                        AccountNumberGenerator.reset();
                         running = false;
                     }
                     default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
@@ -72,7 +74,7 @@ public class App {
         String name = scanner.nextLine().trim();
         if (name.isEmpty()) throw new IllegalArgumentException("Owner name cannot be empty.");
 
-        System.out.print("Enter initial deposit amount (Min $1.00): $");
+        System.out.print("Enter initial deposit amount (Min $5.00): $");
         double initialDeposit = readDoubleInput();
 
         System.out.print("Set an optional daily withdrawal limit (Or press Enter for no limit): $");
