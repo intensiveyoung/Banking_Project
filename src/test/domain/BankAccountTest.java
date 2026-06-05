@@ -32,19 +32,19 @@ class BankAccountTest {
     @DisplayName("Should fail account creation if initial deposit is under $5.00")
     void testInvalidAccountCreation() {
         assertThrows(IllegalArgumentException.class, () -> {
-            new BankAccount("1003", "Charlie", 4.99, null);
+            new BankAccount("1004", "Charlie", 4.99, null);
         });
     }
 
     @Test
-    @DisplayName("Should accept deposits of exactly or greater than" + BankAccount.MINIMUM_DEPOSIT)
+    @DisplayName("Should accept deposits of exactly or greater than $1.00")
     void testValidDeposit() {
         accountNoLimit.deposit(1.00);
         assertEquals(101.00, accountNoLimit.getBalance());
     }
 
     @Test
-    @DisplayName("Should reject deposits under" + BankAccount.MINIMUM_DEPOSIT + "without mutating balance")
+    @DisplayName("Should reject deposits under $1.00 without mutating balance")
     void testInvalidDeposit() {
         assertThrows(IllegalArgumentException.class, () -> accountNoLimit.deposit(0.99));
         assertEquals(100.00, accountNoLimit.getBalance());
@@ -55,6 +55,13 @@ class BankAccountTest {
     void testSuccessfulWithdrawal() {
         accountNoLimit.withdraw(40.00);
         assertEquals(60.00, accountNoLimit.getBalance());
+    }
+
+    @Test
+    @DisplayName("Should reject withdraws below $1.00")
+    void testMinimumWithdrawal() {
+        assertThrows(IllegalArgumentException.class, () -> accountNoLimit.withdraw(0.99));
+        assertEquals(100.00, accountNoLimit.getBalance());
     }
 
     @Test
