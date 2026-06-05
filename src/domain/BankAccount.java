@@ -16,6 +16,7 @@ public class BankAccount {
     private final Clock clock; // time source dependency
     public static final double MINIMUM_DEPOSIT = 1.00;
     public static final double INITIAL_MIN_DEPOSIT = 5.00;
+    public static final double MINIMUM_WITHDRAWAL = 1.00;
 
     // Backwards compatibility constructor (defaults to real system time zone)
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit) {
@@ -25,7 +26,7 @@ public class BankAccount {
     // Master dependency-injected constructor used for deterministic testing
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit, Clock clock) {
         if (initialDeposit < BankAccount.INITIAL_MIN_DEPOSIT) {
-            throw new IllegalArgumentException("Initial deposit must be at least " + MoneyUtil.format(BankAccount.INITIAL_MIN_DEPOSIT));
+            throw new IllegalArgumentException("Initial deposit must be at least " + MoneyUtil.format(INITIAL_MIN_DEPOSIT));
         }
         this.accountNumber = accountNumber;
         this.ownerName = ownerName;
@@ -42,7 +43,7 @@ public class BankAccount {
 
     public synchronized void deposit(double amount) {
         if (amount < BankAccount.MINIMUM_DEPOSIT) {
-            throw new IllegalArgumentException("Minimum deposit amount is " + MoneyUtil.format(BankAccount.MINIMUM_DEPOSIT));
+            throw new IllegalArgumentException("Minimum deposit amount is " + MoneyUtil.format(MINIMUM_DEPOSIT));
         }
         balance += amount;
         transactionHistory.add(new Transaction(
@@ -51,8 +52,8 @@ public class BankAccount {
     }
 
     public synchronized void withdraw(double amount) {
-        if (amount <= 0) {
-            throw new IllegalArgumentException("Withdrawal amount must be greater than 0");
+        if (amount <= MINIMUM_WITHDRAWAL) {
+            throw new IllegalArgumentException("Withdrawal amount must be greater than " + MoneyUtil.format(MINIMUM_WITHDRAWAL));
         }
 
         // Rule Check 1: Insufficient Funds
