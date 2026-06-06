@@ -40,7 +40,6 @@ public class App {
                     case "5" -> handleTransactionHistory();
                     case "6" -> {
                         System.out.println("\nThank you for banking with us. Goodbye!");
-                        AccountNumberGenerator.reset();
                         running = false;
                     }
                     default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
