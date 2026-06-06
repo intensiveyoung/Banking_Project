@@ -1,6 +1,8 @@
 import domain.AccountNumberGenerator;
 import domain.Transaction;
 import domain.TransactionStatus;
+import domain.BankAccount;
+import domain.MoneyUtil;
 import service.BankingService;
 
 import java.time.format.DateTimeFormatter;
@@ -28,17 +30,18 @@ public class App {
 
         while (running) {
             printMenu();
-            System.out.print("Select an option (1-6): ");
+            System.out.print("Select an option (1-7): ");
             String choice = scanner.nextLine().trim();
 
             try {
                 switch (choice) {
                     case "1" -> handleOpenAccount();
-                    case "2" -> handleDeposit();
-                    case "3" -> handleWithdrawal();
-                    case "4" -> handleCheckBalance();
-                    case "5" -> handleTransactionHistory();
-                    case "6" -> {
+                    case "2" -> handleLogin();
+                    case "3" -> handleDeposit();
+                    case "4" -> handleWithdrawal();
+                    case "5" -> handleCheckBalance();
+                    case "6" -> handleTransactionHistory();
+                    case "7" -> {
                         System.out.println("\nThank you for banking with us. Goodbye!");
                         running = false;
                     }
@@ -55,11 +58,12 @@ public class App {
     private void printMenu() {
         System.out.println("\n---------------------------------");
         System.out.println("1. Open New Savings Account");
-        System.out.println("2. Deposit Funds");
-        System.out.println("3. Withdraw Funds");
-        System.out.println("4. Check Account Balance");
-        System.out.println("5. View Transaction Ledger History");
-        System.out.println("6. Exit System");
+        System.out.println("2. Login to Existing Account");
+        System.out.println("3. Deposit Funds");
+        System.out.println("4. Withdraw Funds");
+        System.out.println("5. Check Account Balance");
+        System.out.println("6. View Transaction Ledger History");
+        System.out.println("7. Exit System");
         System.out.println("---------------------------------");
     }
 
@@ -73,7 +77,7 @@ public class App {
         String name = scanner.nextLine().trim();
         if (name.isEmpty()) throw new IllegalArgumentException("Owner name cannot be empty.");
 
-        System.out.print("Enter initial deposit amount (Min $5.00): $");
+        System.out.print("Enter initial deposit amount (Min " + MoneyUtil.format(BankAccount.INITIAL_MIN_DEPOSIT) + "): $");
         double initialDeposit = readDoubleInput();
 
         System.out.print("Set an optional daily withdrawal limit (Or press Enter for no limit): $");
@@ -86,23 +90,39 @@ public class App {
         System.out.println("   Account Holder: " + name);
     }
 
+    private void handleLogin() {
+        System.out.print("Enter your 4-digit account number to login: ");
+        String accountNum = scanner.nextLine().trim();
+
+        if (accountNum.isEmpty()) {
+            throw new IllegalArgumentException("Account number cannot be empty.");
+        }
+
+        // Delegate lookup and state tracking to our database-backed service
+        bankingService.login(accountNum);
+
+        var account = bankingService.getActiveAccount();
+        System.out.println("\n✅ Login successful!");
+        System.out.println("   Welcome back, " + account.getOwnerName() + "!");
+    }
+
     private void handleDeposit() {
-        System.out.print("Enter deposit amount (Min $1.00): $");
+        System.out.print("Enter deposit amount (Min " + MoneyUtil.format(BankAccount.MINIMUM_DEPOSIT) + "): $");
         double amount = readDoubleInput();
         bankingService.deposit(amount);
-        System.out.printf("\n✅ Successfully deposited $%.2f. New Balance: $%.2f%n", amount, bankingService.checkBalance());
+        System.out.printf("\n✅ Successfully deposited %s. New Balance: %s%n", amount, MoneyUtil.format(bankingService.checkBalance()));
     }
 
     private void handleWithdrawal() {
         System.out.print("Enter withdrawal amount: $");
         double amount = readDoubleInput();
         bankingService.withdraw(amount);
-        System.out.printf("\n✅ Successfully withdrew $%.2f. Remaining Balance: $%.2f%n", amount, bankingService.checkBalance());
+        System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", amount, MoneyUtil.format(bankingService.checkBalance()));
     }
 
     private void handleCheckBalance() {
         double balance = bankingService.checkBalance();
-        System.out.printf("\n💰 Current Active Balance: $%.2f%n", balance);
+        System.out.printf("\n💰 Current Active Balance: %s%n", MoneyUtil.format(balance));
     }
 
     private void handleTransactionHistory() {
@@ -112,7 +132,7 @@ public class App {
         System.out.println("----------------------------------------------------------------");
 
         for (Transaction tx : history) {
-            String balanceStr = (tx.getStatus() == TransactionStatus.FAILED) ? "N/A (Null)" : String.format("$%.2f", tx.getResultingBalance());
+            String balanceStr = (tx.getStatus() == TransactionStatus.FAILED) ? "N/A (Null)" : String.format("%s", MoneyUtil.format(tx.getResultingBalance()));
             System.out.printf("%-20s | %-12s | $%-9.2f | %-15s | %-10s%n",
                     tx.getTimestamp().format(timeFormatter),
                     tx.getType(),
