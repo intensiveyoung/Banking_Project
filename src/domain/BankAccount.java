@@ -95,4 +95,8 @@ public class BankAccount {
     public double getBalance() { return balance; }
     public List<Transaction> getTransactionHistory() { return Collections.unmodifiableList(transactionHistory); }
     public Double getDailyWithdrawalLimit() { return dailyWithdrawalLimit; }
+    public synchronized void hydrateTransaction(Transaction tx) {
+        // Directly appends a historical transaction record from the DB without executing mutations
+        this.transactionHistory.add(tx);
+    }
 }
