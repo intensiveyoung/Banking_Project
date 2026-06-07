@@ -24,54 +24,93 @@ public class App {
     }
 
     public void runAppLoop() {
-        System.out.println("=== WELCOME TO SPRINT-1 CORE BANKING SYSTEM ===");
+        System.out.println("=== WELCOME TO CORE BANKING SYSTEM ===");
         boolean running = true;
 
         while (running) {
-            printMenu();
-            System.out.print("Select an option (1-7): ");
-            String choice = scanner.nextLine().trim();
-
             try {
-                switch (choice) {
-                    case "1" -> handleOpenAccount();
-                    case "2" -> handleLogin();
-                    case "3" -> handleDeposit();
-                    case "4" -> handleWithdrawal();
-                    case "5" -> handleCheckBalance();
-                    case "6" -> handleTransactionHistory();
-                    case "7" -> {
-                        System.out.println("\nThank you for banking with us. Goodbye!");
-                        running = false;
-                    }
-                    default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
+                if (bankingService.getActiveAccount() == null) {
+                    running = runUnauthenticatedMenu();
+                } else {
+                    running = runAuthenticatedMenu();
                 }
             } catch (Exception e) {
-                // Trap domain exceptions cleanly to protect application runtime state
                 System.out.println("\n❌ ERROR: " + e.getMessage());
             }
         }
         scanner.close();
     }
 
-    private void printMenu() {
+    /**
+     * STATE 1: Gateway Session Menu
+     */
+    private boolean runUnauthenticatedMenu() {
         System.out.println("\n---------------------------------");
         System.out.println("1. Open New Savings Account");
         System.out.println("2. Login to Existing Account");
-        System.out.println("3. Deposit Funds");
-        System.out.println("4. Withdraw Funds");
-        System.out.println("5. Check Account Balance");
-        System.out.println("6. View Transaction Ledger History");
-        System.out.println("7. Exit System");
+        System.out.println("3. Exit System");
         System.out.println("---------------------------------");
+
+        String choice = getValidMenuChoice("Select an option (1-3): ");
+
+        switch (choice) {
+            case "1" -> handleOpenAccount();
+            case "2" -> handleLogin();
+            case "3" -> {
+                System.out.println("\nThank you for banking with us. Goodbye!");
+                return false;
+            }
+            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 3.");
+        }
+        return true;
+    }
+
+    /**
+     * STATE 2: Secure Session Menu
+     */
+    private boolean runAuthenticatedMenu() {
+        BankAccount account = bankingService.getActiveAccount();
+        System.out.println("\n=================================");
+        System.out.println("👤 SESSION: " + account.getOwnerName() + " (" + account.getAccountNumber() + ")");
+        System.out.println("---------------------------------");
+        System.out.println("1. Deposit Funds");
+        System.out.println("2. Withdraw Funds");
+        System.out.println("3. Check Account Balance");
+        System.out.println("4. View Transaction Ledger History");
+        System.out.println("5. Logout");
+        System.out.println("=================================");
+
+        String choice = getValidMenuChoice("Select an option (1-5): ");
+
+        switch (choice) {
+            case "1" -> handleDeposit();
+            case "2" -> handleWithdrawal();
+            case "3" -> handleCheckBalance();
+            case "4" -> handleTransactionHistory();
+            case "5" -> handleLogout();
+            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 5.");
+        }
+        return true;
+    }
+
+    /**
+     * 🛡️ THE SYNCHRONOUS SHIELD
+     * Forces the terminal to stay locked here until a non-empty choice is typed.
+     * This naturally swallows accidental rapid double-enters.
+     */
+    private String getValidMenuChoice(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            if (scanner.hasNextLine()) {
+                String input = scanner.nextLine().trim();
+                if (!input.isEmpty()) {
+                    return input; // Return immediately once a real option is provided
+                }
+            }
+        }
     }
 
     private void handleOpenAccount() {
-        if (bankingService.getActiveAccount() != null) {
-            System.out.println("\n❌ An active account already exists for this session (V1 Limit).");
-            return;
-        }
-
         System.out.print("Enter account owner full name: ");
         String name = scanner.nextLine().trim();
         if (name.isEmpty()) throw new IllegalArgumentException("Owner name cannot be empty.");
@@ -81,6 +120,7 @@ public class App {
 
         System.out.print("Set an optional daily withdrawal limit (Or press Enter for no limit): $");
         String limitInput = scanner.nextLine().trim();
+
         Double dailyLimit;
         if (limitInput.isEmpty()) {
             dailyLimit = null;
@@ -88,7 +128,6 @@ public class App {
             try {
                 dailyLimit = Double.parseDouble(limitInput);
             } catch (NumberFormatException e) {
-                // Intercept the raw exception and rethrow our uniform user-friendly message
                 throw new IllegalArgumentException("Invalid numeric input format entered.");
             }
         }
@@ -107,26 +146,28 @@ public class App {
             throw new IllegalArgumentException("Account number cannot be empty.");
         }
 
-        // Delegate lookup and state tracking to our database-backed service
         bankingService.login(accountNum);
-
         var account = bankingService.getActiveAccount();
-        System.out.println("\n✅ Login successful!");
-        System.out.println("   Welcome back, " + account.getOwnerName() + "!");
+        System.out.println("\n✅ Login successful! Welcome back, " + account.getOwnerName() + "!");
+    }
+
+    private void handleLogout() {
+        bankingService.logout();
+        System.out.println("\n✅ You have been securely signed out of your account.");
     }
 
     private void handleDeposit() {
         System.out.print("Enter deposit amount (Min " + MoneyUtil.format(BankAccount.MINIMUM_DEPOSIT) + "): $");
         double amount = readDoubleInput();
         bankingService.deposit(amount);
-        System.out.printf("\n✅ Successfully deposited %s. New Balance: %s%n", amount, MoneyUtil.format(bankingService.checkBalance()));
+        System.out.printf("\n✅ Successfully deposited %s. New Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
     }
 
     private void handleWithdrawal() {
         System.out.print("Enter withdrawal amount: $");
         double amount = readDoubleInput();
         bankingService.withdraw(amount);
-        System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", amount, MoneyUtil.format(bankingService.checkBalance()));
+        System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
     }
 
     private void handleCheckBalance() {
@@ -142,10 +183,10 @@ public class App {
 
         for (Transaction tx : history) {
             String balanceStr = (tx.getStatus() == TransactionStatus.FAILED) ? "N/A (Null)" : String.format("%s", MoneyUtil.format(tx.getResultingBalance()));
-            System.out.printf("%-20s | %-12s | $%-9.2f | %-15s | %-10s%n",
+            System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n",
                     tx.getTimestamp().format(timeFormatter),
                     tx.getType(),
-                    tx.getAmount(),
+                    MoneyUtil.format(tx.getAmount()),
                     balanceStr,
                     tx.getStatus()
             );
