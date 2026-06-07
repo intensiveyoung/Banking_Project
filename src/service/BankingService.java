@@ -57,9 +57,10 @@ public class BankingService {
         // Crucial: Hydrate structural local daily limit context by pulling recent database logs
         // This ensures tracking limits functions correctly over consecutive separate run windows!
         List<Transaction> dbHistory = accountDAO.getTransactionHistory(account.getAccountNumber());
-        // Simple syncing catch-up mechanism to match historical entity states
+        // Hydrate the local object with missing database transactions
         for (int i = account.getTransactionHistory().size(); i < dbHistory.size(); i++) {
-            // Keeps current transient transaction objects matching persistent ones
+            Transaction historicalTx = dbHistory.get(i);
+            account.hydrateTransaction(historicalTx); // Synchronizes the transient state!
         }
 
         try {
@@ -92,5 +93,9 @@ public class BankingService {
         if (activeAccountNumber == null) {
             throw new IllegalStateException("No active account session found. Please open an account or login first.");
         }
+    }
+
+    public void logout() {
+        this.activeAccountNumber = null; // Purges session footprint from memory
     }
 }
