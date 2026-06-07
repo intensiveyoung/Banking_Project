@@ -1,8 +1,7 @@
-import domain.AccountNumberGenerator;
-import domain.Transaction;
-import domain.TransactionStatus;
 import domain.BankAccount;
 import domain.MoneyUtil;
+import domain.Transaction;
+import domain.TransactionStatus;
 import service.BankingService;
 
 import java.time.format.DateTimeFormatter;
@@ -82,7 +81,17 @@ public class App {
 
         System.out.print("Set an optional daily withdrawal limit (Or press Enter for no limit): $");
         String limitInput = scanner.nextLine().trim();
-        Double dailyLimit = limitInput.isEmpty() ? null : Double.parseDouble(limitInput);
+        Double dailyLimit;
+        if (limitInput.isEmpty()) {
+            dailyLimit = null;
+        } else {
+            try {
+                dailyLimit = Double.parseDouble(limitInput);
+            } catch (NumberFormatException e) {
+                // Intercept the raw exception and rethrow our uniform user-friendly message
+                throw new IllegalArgumentException("Invalid numeric input format entered.");
+            }
+        }
 
         String accountNum = bankingService.openAccount(name, initialDeposit, dailyLimit);
         System.out.println("\n✅ Account successfully created!");
