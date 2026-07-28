@@ -14,6 +14,10 @@ public class BankAccount {
     private final Double dailyWithdrawalLimit; // null means no limit
     private final List<Transaction> transactionHistory;
     private final Clock clock; // time source dependency
+    private String pinHash;
+    private String pinSalt;
+    private String securityQuestion;
+    private String securityAnswerHash;
     public static final double MINIMUM_DEPOSIT = 1.00;
     public static final double INITIAL_MIN_DEPOSIT = 5.00;
     public static final double MINIMUM_WITHDRAWAL = 1.00;
@@ -25,20 +29,42 @@ public class BankAccount {
 
     // Master dependency-injected constructor used for deterministic testing
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit, Clock clock) {
-        if (initialDeposit < BankAccount.INITIAL_MIN_DEPOSIT) {
+        this(accountNumber, ownerName, initialDeposit, dailyWithdrawalLimit, clock, true);
+    }
+
+    private BankAccount(String accountNumber, String ownerName, double balance, Double dailyWithdrawalLimit,
+                        Clock clock, boolean recordInitialDeposit) {
+        if (recordInitialDeposit && balance < BankAccount.INITIAL_MIN_DEPOSIT) {
             throw new IllegalArgumentException("Initial deposit must be at least " + MoneyUtil.format(INITIAL_MIN_DEPOSIT));
         }
         this.accountNumber = accountNumber;
         this.ownerName = ownerName;
-        this.balance = initialDeposit;
+        this.balance = balance;
         this.dailyWithdrawalLimit = dailyWithdrawalLimit;
         this.clock = clock;
         this.transactionHistory = new ArrayList<>();
 
-        // Record initial deposit transaction
-        this.transactionHistory.add(new Transaction(
-                TransactionType.DEPOSIT, initialDeposit, LocalDateTime.now(this.clock), initialDeposit, TransactionStatus.SUCCESS
-        ));
+        if (recordInitialDeposit) {
+            this.transactionHistory.add(new Transaction(
+                    TransactionType.DEPOSIT,
+                    balance,
+                    LocalDateTime.now(this.clock),
+                    balance,
+                    TransactionStatus.SUCCESS
+            ));
+        }
+    }
+
+    public static BankAccount rehydrate(String accountNumber, String ownerName, double balance,
+                                        Double dailyWithdrawalLimit) {
+        return new BankAccount(
+                accountNumber,
+                ownerName,
+                balance,
+                dailyWithdrawalLimit,
+                Clock.systemDefaultZone(),
+                false
+        );
     }
 
     public synchronized void deposit(double amount) {
@@ -95,6 +121,15 @@ public class BankAccount {
     public double getBalance() { return balance; }
     public List<Transaction> getTransactionHistory() { return Collections.unmodifiableList(transactionHistory); }
     public Double getDailyWithdrawalLimit() { return dailyWithdrawalLimit; }
+    public String getPinHash() { return pinHash; }
+    public void setPinHash(String pinHash) { this.pinHash = pinHash; }
+    public String getPinSalt() { return pinSalt; }
+    public void setPinSalt(String pinSalt) { this.pinSalt = pinSalt; }
+    public String getSecurityQuestion() { return securityQuestion; }
+    public void setSecurityQuestion(String securityQuestion) { this.securityQuestion = securityQuestion; }
+    public String getSecurityAnswerHash() { return securityAnswerHash; }
+    public void setSecurityAnswerHash(String securityAnswerHash) { this.securityAnswerHash = securityAnswerHash; }
+
     public synchronized void hydrateTransaction(Transaction tx) {
         // Directly appends a historical transaction record from the DB without executing mutations
         this.transactionHistory.add(tx);

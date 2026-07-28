@@ -37,6 +37,15 @@ class BankAccountTest {
     }
 
     @Test
+    @DisplayName("Should rehydrate a persisted balance without applying opening deposit rules")
+    void testPersistedAccountRehydration() {
+        BankAccount persistedAccount = BankAccount.rehydrate("1004", "Legacy User", 0.50, null);
+
+        assertEquals(0.50, persistedAccount.getBalance());
+        assertTrue(persistedAccount.getTransactionHistory().isEmpty());
+    }
+
+    @Test
     @DisplayName("Should accept deposits of exactly or greater than $1.00")
     void testValidDeposit() {
         accountNoLimit.deposit(1.00);

@@ -33,9 +33,18 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     status VARCHAR(20) NOT NULL
                 );
                 """;
+            String addPinHashColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS pin_hash VARCHAR(255)";
+            String addPinSaltColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS pin_salt VARCHAR(255)";
+            String addSecurityQuestionColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS security_question VARCHAR(255)";
+            String addSecurityAnswerHashColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS security_answer_hash VARCHAR(255)";
+
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute(createAccountsTable);
                 stmt.execute(createTransactionsTable);
+                stmt.execute(addPinHashColumn);
+                stmt.execute(addPinSaltColumn);
+                stmt.execute(addSecurityQuestionColumn);
+                stmt.execute(addSecurityAnswerHashColumn);
             }
         } catch (SQLException e) {
             throw new RuntimeException("Database initialization failed: " + e.getMessage(), e);
@@ -63,7 +72,18 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
 
     @Override
     public void saveAccount(BankAccount account) {
-        String sql = "INSERT INTO accounts (account_number, owner_name, balance, daily_limit) VALUES (?, ?, ?, ?)";
+        String sql = """
+                INSERT INTO accounts (
+                    account_number,
+                    owner_name,
+                    balance,
+                    daily_limit,
+                    pin_hash,
+                    pin_salt,
+                    security_question,
+                    security_answer_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """;
         try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, account.getAccountNumber());
             pstmt.setString(2, account.getOwnerName());
@@ -77,6 +97,10 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                 pstmt.setNull(4, java.sql.Types.NULL);
             }
 
+            setNullableString(pstmt, 5, account.getPinHash());
+            setNullableString(pstmt, 6, account.getPinSalt());
+            setNullableString(pstmt, 7, account.getSecurityQuestion());
+            setNullableString(pstmt, 8, account.getSecurityAnswerHash());
             pstmt.executeUpdate();
 
             if (!account.getTransactionHistory().isEmpty()) {
@@ -98,9 +122,17 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     double bal = rs.getDouble("balance");
                     double limitVal = rs.getDouble("daily_limit");
                     Double limit = rs.wasNull() ? null : limitVal;
+                    String pinHash = rs.getString("pin_hash");
+                    String pinSalt = rs.getString("pin_salt");
+                    String securityQuestion = rs.getString("security_question");
+                    String securityAnswerHash = rs.getString("security_answer_hash");
 
                     // Rehydrate the domain object state from database data metrics
-                    BankAccount account = new BankAccount(accountNumber, name, bal, limit);
+                    BankAccount account = BankAccount.rehydrate(accountNumber, name, bal, limit);
+                    account.setPinHash(pinHash);
+                    account.setPinSalt(pinSalt);
+                    account.setSecurityQuestion(securityQuestion);
+                    account.setSecurityAnswerHash(securityAnswerHash);
 
                     // Re-populate transaction list histories securely
                     // Note: We bypass the base constructor's auto-added initial record to mirror the DB accurately
@@ -113,6 +145,14 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
         return null;
     }
 
+    private void setNullableString(PreparedStatement statement, int index, String value) throws SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.VARCHAR);
+        } else {
+            statement.setString(index, value);
+        }
+    }
+
     @Override
     public void updateAccountBalance(String accountNumber, double newBalance) {
         String sql = "UPDATE accounts SET balance = ? WHERE account_number = ?";
@@ -122,6 +162,29 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
             pstmt.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("Error updating balance configuration", e);
+        }
+    }
+
+    @Override
+    public void updateAccountSecurity(String accountNumber, String pinHash, String pinSalt,
+                                      String securityQuestion, String securityAnswerHash) {
+        String sql = """
+                UPDATE accounts
+                SET pin_hash = ?, pin_salt = ?, security_question = ?, security_answer_hash = ?
+                WHERE account_number = ?
+                """;
+        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, pinHash);
+            pstmt.setString(2, pinSalt);
+            pstmt.setString(3, securityQuestion);
+            pstmt.setString(4, securityAnswerHash);
+            pstmt.setString(5, accountNumber);
+
+            if (pstmt.executeUpdate() != 1) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating account security configuration", e);
         }
     }
 
