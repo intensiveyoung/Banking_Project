@@ -1,5 +1,6 @@
 import domain.BankAccount;
 import domain.MoneyUtil;
+import domain.SecurityQuestion;
 import domain.Transaction;
 import domain.TransactionStatus;
 import service.BankingService;
@@ -14,7 +15,11 @@ public class App {
     private final DateTimeFormatter timeFormatter;
 
     public App() {
-        this.bankingService = new BankingService();
+        this(new BankingService());
+    }
+
+    App(BankingService bankingService) {
+        this.bankingService = bankingService;
         this.scanner = new Scanner(System.in);
         this.timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     }
@@ -132,7 +137,16 @@ public class App {
             }
         }
 
-        String accountNum = bankingService.openAccount(name, initialDeposit, dailyLimit);
+        SecuritySetup securitySetup = promptForSecuritySetup("Create a 4-digit numeric PIN: ");
+
+        String accountNum = bankingService.openAccount(
+                name,
+                initialDeposit,
+                dailyLimit,
+                securitySetup.pin(),
+                securitySetup.question(),
+                securitySetup.answer()
+        );
         System.out.println("\n✅ Account successfully created!");
         System.out.println("   Account Number: " + accountNum);
         System.out.println("   Account Holder: " + name);
@@ -146,10 +160,79 @@ public class App {
             throw new IllegalArgumentException("Account number cannot be empty.");
         }
 
-        bankingService.login(accountNum);
-        var account = bankingService.getActiveAccount();
+        BankAccount account = bankingService.getAccountForAuthentication(accountNum);
+        if (account.getPinHash() == null) {
+            handleLegacySecurityEnrollment(account);
+        } else {
+            handleSecuredAccountLogin(account);
+        }
+        account = bankingService.getActiveAccount();
         System.out.println("\n✅ Login successful! Welcome back, " + account.getOwnerName() + "!");
     }
+
+    private void handleLegacySecurityEnrollment(BankAccount account) {
+        System.out.println("\nThis legacy account requires security enrollment.");
+        System.out.print("Confirm account owner full name: ");
+        String ownerName = scanner.nextLine().trim();
+        bankingService.verifyLegacyOwner(account.getAccountNumber(), ownerName);
+        SecuritySetup securitySetup = promptForSecuritySetup("Create a 4-digit numeric PIN: ");
+
+        bankingService.enrollLegacyAccount(
+                account.getAccountNumber(),
+                ownerName,
+                securitySetup.pin(),
+                securitySetup.question(),
+                securitySetup.answer()
+        );
+        bankingService.login(account.getAccountNumber(), securitySetup.pin());
+        System.out.println("\n✅ Account security enrollment completed successfully!");
+    }
+
+    private void handleSecuredAccountLogin(BankAccount account) {
+        System.out.print("Enter 4-digit PIN (or type 'RESET' to recover PIN): ");
+        String pinOrReset = scanner.nextLine().trim();
+
+        if (!pinOrReset.equalsIgnoreCase("RESET")) {
+            bankingService.login(account.getAccountNumber(), pinOrReset);
+            return;
+        }
+
+        System.out.println("Security question: " + account.getSecurityQuestion());
+        System.out.print("Enter security answer: ");
+        String securityAnswer = scanner.nextLine().trim();
+        bankingService.verifySecurityAnswer(account.getAccountNumber(), securityAnswer);
+        System.out.println("\n✅ Security answer verified successfully!");
+
+        System.out.print("Enter a new 4-digit PIN: ");
+        String newPin = scanner.nextLine().trim();
+        bankingService.resetPin(account.getAccountNumber(), securityAnswer, newPin);
+        bankingService.login(account.getAccountNumber(), newPin);
+    }
+
+    private SecuritySetup promptForSecuritySetup(String pinPrompt) {
+        System.out.print(pinPrompt);
+        String pin = scanner.nextLine().trim();
+
+        System.out.println("Select a security question:");
+        SecurityQuestion[] questions = SecurityQuestion.values();
+        for (int index = 0; index < questions.length; index++) {
+            System.out.println((index + 1) + ". " + questions[index].getText());
+        }
+
+        String selection = getValidMenuChoice("Select a question (1-5): ");
+        SecurityQuestion question;
+        try {
+            question = SecurityQuestion.fromSelection(Integer.parseInt(selection));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Security question selection must be between 1 and 5.");
+        }
+
+        System.out.print("Enter security answer: ");
+        String answer = scanner.nextLine().trim();
+        return new SecuritySetup(pin, question.getText(), answer);
+    }
+
+    private record SecuritySetup(String pin, String question, String answer) {}
 
     private void handleLogout() {
         bankingService.logout();

@@ -1,17 +1,25 @@
 package service;
 
 import domain.BankAccount;
+import domain.AccountNumberGenerator;
+import domain.SecurityQuestion;
+import domain.SecurityUtil;
 import domain.Transaction;
 import repository.BankAccountDAO;
 import repository.PostgresBankAccountDAO;
 import java.util.List;
+import java.util.Objects;
 
 public class BankingService {
     private final BankAccountDAO accountDAO;
     private String activeAccountNumber; // Keeps track of which user account number session is logged in
 
     public BankingService() {
-        this.accountDAO = new PostgresBankAccountDAO();
+        this(new PostgresBankAccountDAO());
+    }
+
+    public BankingService(BankAccountDAO accountDAO) {
+        this.accountDAO = Objects.requireNonNull(accountDAO, "Account DAO is required.");
 
         // DYNAMIC COUNTER INITIALIZATION:
         // Query the database for the highest active account index
@@ -19,25 +27,115 @@ public class BankingService {
         if (maxAccountInDb != null) {
             int currentMax = Integer.parseInt(maxAccountInDb);
             // Re-assign the global generator baseline memory sequence value!
-            domain.AccountNumberGenerator.initializeCounter(currentMax);
+            AccountNumberGenerator.initializeCounter(currentMax);
         }
     }
 
-    public String openAccount(String ownerName, double initialDeposit, Double dailyLimit) {
-        String accNum = domain.AccountNumberGenerator.getNextAccountNumber();
+    public String openAccount(String ownerName, double initialDeposit, Double dailyLimit, String pin,
+                              String securityQuestion, String securityAnswer) {
+        validateSecuritySetup(pin, securityQuestion, securityAnswer);
+
+        String accNum = AccountNumberGenerator.getNextAccountNumber();
         BankAccount account = new BankAccount(accNum, ownerName, initialDeposit, dailyLimit);
+        String salt = SecurityUtil.generateSalt();
+        account.setPinSalt(salt);
+        account.setPinHash(SecurityUtil.hashPin(pin, salt));
+        account.setSecurityQuestion(securityQuestion.trim());
+        account.setSecurityAnswerHash(SecurityUtil.hashSecurityAnswer(securityAnswer, salt));
 
         accountDAO.saveAccount(account);
         this.activeAccountNumber = accNum;
         return accNum;
     }
 
-    public void login(String accountNumber) {
+    public void login(String accountNumber, String pin) {
+        BankAccount account = accountDAO.findAccountByNumber(accountNumber);
+        if (account == null || pin == null || !pin.matches("\\d{4}")
+                || account.getPinHash() == null || account.getPinSalt() == null) {
+            throw new IllegalArgumentException("Invalid account number or PIN entered.");
+        }
+
+        String enteredPinHash = SecurityUtil.hashPin(pin, account.getPinSalt());
+        if (!enteredPinHash.equals(account.getPinHash())) {
+            throw new IllegalArgumentException("Invalid account number or PIN entered.");
+        }
+
+        this.activeAccountNumber = accountNumber;
+    }
+
+    public BankAccount getAccountForAuthentication(String accountNumber) {
         BankAccount account = accountDAO.findAccountByNumber(accountNumber);
         if (account == null) {
             throw new IllegalArgumentException("Account number not found.");
         }
-        this.activeAccountNumber = accountNumber;
+        return account;
+    }
+
+    public void enrollLegacyAccount(String accountNumber, String ownerName, String pin,
+                                    String securityQuestion, String securityAnswer) {
+        verifyLegacyOwner(accountNumber, ownerName);
+        validateSecuritySetup(pin, securityQuestion, securityAnswer);
+        persistSecurity(accountNumber, pin, securityQuestion.trim(), securityAnswer);
+    }
+
+    public void verifyLegacyOwner(String accountNumber, String ownerName) {
+        BankAccount account = getAccountForAuthentication(accountNumber);
+        if (account.getPinHash() != null) {
+            throw new IllegalStateException("Account security is already configured.");
+        }
+        if (ownerName == null || !account.getOwnerName().equalsIgnoreCase(ownerName.trim())) {
+            throw new IllegalArgumentException("Legacy account identity verification failed.");
+        }
+    }
+
+    public void verifySecurityAnswer(String accountNumber, String securityAnswer) {
+        BankAccount account = getAccountForAuthentication(accountNumber);
+        if (account.getPinSalt() == null || account.getSecurityQuestion() == null
+                || account.getSecurityAnswerHash() == null) {
+            throw new IllegalStateException("Account security recovery is not configured.");
+        }
+
+        String enteredAnswerHash = SecurityUtil.hashSecurityAnswer(securityAnswer, account.getPinSalt());
+        if (!enteredAnswerHash.equals(account.getSecurityAnswerHash())) {
+            throw new IllegalArgumentException("Invalid security answer entered.");
+        }
+    }
+
+    public void resetPin(String accountNumber, String securityAnswer, String newPin) {
+        validatePin(newPin);
+        BankAccount account = getAccountForAuthentication(accountNumber);
+        verifySecurityAnswer(accountNumber, securityAnswer);
+        persistSecurity(accountNumber, newPin, account.getSecurityQuestion(), securityAnswer);
+    }
+
+    private void persistSecurity(String accountNumber, String pin, String securityQuestion,
+                                 String securityAnswer) {
+        String salt = SecurityUtil.generateSalt();
+        String pinHash = SecurityUtil.hashPin(pin, salt);
+        String securityAnswerHash = SecurityUtil.hashSecurityAnswer(securityAnswer, salt);
+        accountDAO.updateAccountSecurity(
+                accountNumber,
+                pinHash,
+                salt,
+                securityQuestion,
+                securityAnswerHash
+        );
+    }
+
+    private void validateSecuritySetup(String pin, String securityQuestion, String securityAnswer) {
+        validatePin(pin);
+        if (!SecurityQuestion.isSupported(securityQuestion)) {
+            throw new IllegalArgumentException("A predefined security question must be selected.");
+        }
+        if (securityAnswer == null || securityAnswer.trim().isEmpty()) {
+            throw new IllegalArgumentException("Security answer cannot be empty.");
+        }
+    }
+
+    private void validatePin(String pin) {
+        if (pin == null || !pin.matches("\\d{4}")) {
+            throw new IllegalArgumentException("PIN must contain exactly 4 numeric digits.");
+        }
     }
 
     public void deposit(double amount) {
