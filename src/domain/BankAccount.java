@@ -9,9 +9,9 @@ import java.util.List;
 
 public class BankAccount {
     private final String accountNumber;
-    private final String ownerName;
+    private String ownerName;
     private double balance;
-    private final Double dailyWithdrawalLimit; // null means no limit
+    private Double dailyWithdrawalLimit; // null means no limit
     private final List<Transaction> transactionHistory;
     private final Clock clock; // time source dependency
     private String pinHash;
@@ -118,9 +118,11 @@ public class BankAccount {
 
     public String getAccountNumber() { return accountNumber; }
     public String getOwnerName() { return ownerName; }
+    public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
     public double getBalance() { return balance; }
     public List<Transaction> getTransactionHistory() { return Collections.unmodifiableList(transactionHistory); }
     public Double getDailyWithdrawalLimit() { return dailyWithdrawalLimit; }
+    public void setDailyWithdrawalLimit(Double dailyWithdrawalLimit) { this.dailyWithdrawalLimit = dailyWithdrawalLimit; }
     public String getPinHash() { return pinHash; }
     public void setPinHash(String pinHash) { this.pinHash = pinHash; }
     public String getPinSalt() { return pinSalt; }

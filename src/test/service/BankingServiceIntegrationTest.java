@@ -113,6 +113,36 @@ class BankingServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("Integration Test: Profile updates and PIN changes persist")
+    void testProfileAndSecurityUpdatesPersist() {
+        String accountNumber = service.openAccount(
+                "Original Name",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+
+        service.updateOwnerName("Updated Name");
+        service.updateDailyLimit(80.00);
+
+        BankAccount updatedAccount = service.getActiveAccount();
+        assertEquals("Updated Name", updatedAccount.getOwnerName());
+        assertEquals(80.00, updatedAccount.getDailyWithdrawalLimit());
+
+        service.updateDailyLimit(null);
+        assertNull(service.getActiveAccount().getDailyWithdrawalLimit());
+
+        service.changePin("1234", "5678");
+        service.logout();
+        assertThrows(IllegalArgumentException.class, () -> service.login(accountNumber, "1234"));
+        service.login(accountNumber, "5678");
+        assertEquals(accountNumber, service.getActiveAccount().getAccountNumber());
+        assertDoesNotThrow(() -> service.verifySecurityAnswer(accountNumber, "Milo"));
+    }
+
+    @Test
     @DisplayName("Integration Test: Operations should fail if no account is active")
     void testStateProtectionWithoutAccount() {
         assertThrows(IllegalStateException.class, () -> service.deposit(50.00));

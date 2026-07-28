@@ -166,6 +166,26 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
     }
 
     @Override
+    public void updateAccountProfile(String accountNumber, String newName, Double newLimit) {
+        String sql = "UPDATE accounts SET owner_name = ?, daily_limit = ? WHERE account_number = ?";
+        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, newName);
+            if (newLimit == null) {
+                pstmt.setNull(2, Types.DOUBLE);
+            } else {
+                pstmt.setDouble(2, newLimit);
+            }
+            pstmt.setString(3, accountNumber);
+
+            if (pstmt.executeUpdate() != 1) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating account profile configuration", e);
+        }
+    }
+
+    @Override
     public void updateAccountSecurity(String accountNumber, String pinHash, String pinSalt,
                                       String securityQuestion, String securityAnswerHash) {
         String sql = """
