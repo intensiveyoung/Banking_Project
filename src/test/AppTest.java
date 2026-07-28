@@ -18,9 +18,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AppTest {
@@ -57,6 +60,19 @@ class AppTest {
 
     private void runApp(BankingService bankingService) {
         new App(bankingService).runAppLoop();
+    }
+
+    private BankingService createAuthenticatedService(InMemoryBankAccountDAO accountDAO, Double dailyLimit) {
+        BankingService bankingService = new BankingService(accountDAO);
+        bankingService.openAccount(
+                "Profile User",
+                100.00,
+                dailyLimit,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        return bankingService;
     }
 
     @Test
@@ -277,8 +293,189 @@ class AppTest {
         assertTrue(output.contains("Login successful! Welcome back, Reset User!"));
     }
 
+    @Test
+    @DisplayName("UI Test: Profile settings update the account display name")
+    void testProfileDisplayNameUpdate() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("""
+                6
+                1
+                Updated Profile User
+                4
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        assertEquals(
+                "Updated Profile User",
+                accountDAO.findAccountByNumber("1001").getOwnerName()
+        );
+        assertTrue(getConsoleOutput().contains("Display name updated successfully!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Profile settings report an unchanged display name")
+    void testProfileDisplayNameUnchanged() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("""
+                6
+                1
+                Profile User
+                4
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        assertEquals(0, accountDAO.getProfileUpdateCount());
+        assertTrue(
+                getConsoleOutput().contains(
+                        "Display name is already set to 'Profile User'. No changes were made."
+                )
+        );
+    }
+
+    @Test
+    @DisplayName("UI Test: Profile settings update the daily withdrawal limit")
+    void testProfileDailyLimitUpdate() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("""
+                6
+                2
+                75.50
+                4
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        assertEquals(
+                75.50,
+                accountDAO.findAccountByNumber("1001").getDailyWithdrawalLimit()
+        );
+        assertTrue(getConsoleOutput().contains("Daily withdrawal limit updated to $75.50!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Profile settings report an unchanged daily withdrawal limit")
+    void testProfileDailyLimitUnchanged() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, 400.00);
+        provideMockInput("""
+                6
+                2
+                400
+                4
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        assertEquals(0, accountDAO.getProfileUpdateCount());
+        assertTrue(
+                getConsoleOutput().contains(
+                        "Daily withdrawal limit of $400.00 remains unchanged."
+                )
+        );
+    }
+
+    @Test
+    @DisplayName("UI Test: Profile settings remove the daily withdrawal limit")
+    void testProfileDailyLimitRemoval() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, 50.00);
+        provideMockInput("""
+                6
+                2
+
+                4
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        assertNull(accountDAO.findAccountByNumber("1001").getDailyWithdrawalLimit());
+        assertTrue(getConsoleOutput().contains("Daily withdrawal limit removed successfully!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Profile settings change the security PIN")
+    void testProfilePinChange() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("""
+                6
+                3
+                1234
+                5678
+                4
+                5
+                2
+                1001
+                5678
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        assertEquals(SecurityUtil.hashPin("5678", account.getPinSalt()), account.getPinHash());
+        assertDoesNotThrow(() -> bankingService.verifySecurityAnswer("1001", "Milo"));
+        assertTrue(getConsoleOutput().contains("Security PIN changed successfully!"));
+        assertTrue(getConsoleOutput().contains("Login successful! Welcome back, Profile User!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: PIN change rejects a new PIN identical to the current PIN")
+    void testProfilePinChangeRejectsIdenticalPin() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.changePin("1234", "1234")
+        );
+
+        assertEquals(
+                "New PIN cannot be identical to the current PIN.",
+                error.getMessage()
+        );
+    }
+
+    @Test
+    @DisplayName("UI Test: PIN change rejects an invalid new PIN format")
+    void testProfilePinChangeRejectsInvalidFormat() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.changePin("1234", "12AB")
+        );
+
+        assertEquals(
+                "New PIN must be exactly 4 numeric digits.",
+                error.getMessage()
+        );
+    }
+
     private static final class InMemoryBankAccountDAO implements BankAccountDAO {
         private final Map<String, BankAccount> accounts = new HashMap<>();
+        private int profileUpdateCount;
+
+        int getProfileUpdateCount() {
+            return profileUpdateCount;
+        }
 
         @Override
         public void saveAccount(BankAccount account) {
@@ -295,6 +492,17 @@ class AppTest {
             if (!accounts.containsKey(accountNumber)) {
                 throw new IllegalArgumentException("Account number not found.");
             }
+        }
+
+        @Override
+        public void updateAccountProfile(String accountNumber, String newName, Double newLimit) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+            account.setOwnerName(newName);
+            account.setDailyWithdrawalLimit(newLimit);
+            profileUpdateCount++;
         }
 
         @Override

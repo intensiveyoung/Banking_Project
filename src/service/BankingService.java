@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Objects;
 
 public class BankingService {
+    private static final String SECURITY_HASH_SEPARATOR = ":";
     private final BankAccountDAO accountDAO;
     private String activeAccountNumber; // Keeps track of which user account number session is logged in
 
@@ -95,8 +96,16 @@ public class BankingService {
             throw new IllegalStateException("Account security recovery is not configured.");
         }
 
-        String enteredAnswerHash = SecurityUtil.hashSecurityAnswer(securityAnswer, account.getPinSalt());
-        if (!enteredAnswerHash.equals(account.getSecurityAnswerHash())) {
+        String answerSalt = account.getPinSalt();
+        String expectedAnswerHash = account.getSecurityAnswerHash();
+        int separatorIndex = expectedAnswerHash.indexOf(SECURITY_HASH_SEPARATOR);
+        if (separatorIndex > 0) {
+            answerSalt = expectedAnswerHash.substring(0, separatorIndex);
+            expectedAnswerHash = expectedAnswerHash.substring(separatorIndex + 1);
+        }
+
+        String enteredAnswerHash = SecurityUtil.hashSecurityAnswer(securityAnswer, answerSalt);
+        if (!enteredAnswerHash.equals(expectedAnswerHash)) {
             throw new IllegalArgumentException("Invalid security answer entered.");
         }
     }
@@ -136,6 +145,85 @@ public class BankingService {
         if (pin == null || !pin.matches("\\d{4}")) {
             throw new IllegalArgumentException("PIN must contain exactly 4 numeric digits.");
         }
+    }
+
+    public boolean updateOwnerName(String newName) {
+        ensureAccountSessionExists();
+        if (newName == null || newName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Owner name cannot be empty.");
+        }
+
+        BankAccount account = getActiveAccount();
+        String trimmedName = newName.trim();
+        if (trimmedName.equals(account.getOwnerName())) {
+            return false;
+        }
+
+        account.setOwnerName(trimmedName);
+        accountDAO.updateAccountProfile(
+                account.getAccountNumber(),
+                account.getOwnerName(),
+                account.getDailyWithdrawalLimit()
+        );
+        return true;
+    }
+
+    public boolean updateDailyLimit(Double newLimit) {
+        ensureAccountSessionExists();
+        if (newLimit != null && (!Double.isFinite(newLimit) || newLimit <= 0)) {
+            throw new IllegalArgumentException("Daily withdrawal limit must be greater than $0.00.");
+        }
+
+        BankAccount account = getActiveAccount();
+        Double currentLimit = account.getDailyWithdrawalLimit();
+        boolean limitUnchanged = newLimit == null
+                ? currentLimit == null
+                : currentLimit != null && Double.compare(newLimit, currentLimit) == 0;
+        if (limitUnchanged) {
+            return false;
+        }
+
+        account.setDailyWithdrawalLimit(newLimit);
+        accountDAO.updateAccountProfile(
+                account.getAccountNumber(),
+                account.getOwnerName(),
+                account.getDailyWithdrawalLimit()
+        );
+        return true;
+    }
+
+    public void changePin(String currentPin, String newPin) {
+        ensureAccountSessionExists();
+
+        BankAccount account = getActiveAccount();
+        if (currentPin == null || account.getPinHash() == null || account.getPinSalt() == null
+                || !SecurityUtil.hashPin(currentPin, account.getPinSalt()).equals(account.getPinHash())) {
+            throw new IllegalArgumentException("Current PIN is invalid.");
+        }
+        if (currentPin.equals(newPin)) {
+            throw new IllegalArgumentException("New PIN cannot be identical to the current PIN.");
+        }
+        if (newPin == null || !newPin.matches("\\d{4}")) {
+            throw new IllegalArgumentException("New PIN must be exactly 4 numeric digits.");
+        }
+
+        String recoveryAnswerHash = account.getSecurityAnswerHash();
+        if (recoveryAnswerHash != null && !recoveryAnswerHash.contains(SECURITY_HASH_SEPARATOR)) {
+            recoveryAnswerHash = account.getPinSalt() + SECURITY_HASH_SEPARATOR + recoveryAnswerHash;
+        }
+
+        String newSalt = SecurityUtil.generateSalt();
+        String newPinHash = SecurityUtil.hashPin(newPin, newSalt);
+        account.setPinHash(newPinHash);
+        account.setPinSalt(newSalt);
+        account.setSecurityAnswerHash(recoveryAnswerHash);
+        accountDAO.updateAccountSecurity(
+                account.getAccountNumber(),
+                account.getPinHash(),
+                account.getPinSalt(),
+                account.getSecurityQuestion(),
+                account.getSecurityAnswerHash()
+        );
     }
 
     public void deposit(double amount) {

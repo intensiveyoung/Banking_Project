@@ -83,9 +83,10 @@ public class App {
         System.out.println("3. Check Account Balance");
         System.out.println("4. View Transaction Ledger History");
         System.out.println("5. Logout");
+        System.out.println("6. Profile & Security Settings");
         System.out.println("=================================");
 
-        String choice = getValidMenuChoice("Select an option (1-5): ");
+        String choice = getValidMenuChoice("Select an option (1-6): ");
 
         switch (choice) {
             case "1" -> handleDeposit();
@@ -93,7 +94,8 @@ public class App {
             case "3" -> handleCheckBalance();
             case "4" -> handleTransactionHistory();
             case "5" -> handleLogout();
-            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 5.");
+            case "6" -> handleProfileSettings();
+            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
         }
         return true;
     }
@@ -233,6 +235,82 @@ public class App {
     }
 
     private record SecuritySetup(String pin, String question, String answer) {}
+
+    private void handleProfileSettings() {
+        boolean settingsOpen = true;
+        while (settingsOpen) {
+            System.out.println("\n========== PROFILE & SECURITY SETTINGS ==========");
+            System.out.println("1. Update Display Name");
+            System.out.println("2. Adjust Daily Withdrawal Limit");
+            System.out.println("3. Change Security PIN");
+            System.out.println("4. Back");
+            System.out.println("=================================================");
+
+            String choice = getValidMenuChoice("Select an option (1-4): ");
+            switch (choice) {
+                case "1" -> handleOwnerNameUpdate();
+                case "2" -> handleDailyLimitUpdate();
+                case "3" -> handlePinChange();
+                case "4" -> settingsOpen = false;
+                default -> System.out.println(
+                        "\n❌ Invalid choice! Please select an option between 1 and 4."
+                );
+            }
+        }
+    }
+
+    private void handleOwnerNameUpdate() {
+        System.out.print("Enter new display name: ");
+        String newName = scanner.nextLine().trim();
+        if (bankingService.updateOwnerName(newName)) {
+            System.out.println("\n✅ Display name updated successfully!");
+        } else {
+            System.out.println(
+                    "\nℹ️ Display name is already set to '" + newName + "'. No changes were made."
+            );
+        }
+    }
+
+    private void handleDailyLimitUpdate() {
+        System.out.print("Enter new daily withdrawal limit (or press Enter to remove limit): $");
+        String limitInput = scanner.nextLine().trim();
+        Double newLimit = null;
+        if (!limitInput.isEmpty()) {
+            try {
+                newLimit = Double.parseDouble(limitInput);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid numeric input format entered.");
+            }
+        }
+
+        if (!bankingService.updateDailyLimit(newLimit)) {
+            if (newLimit == null) {
+                System.out.println("\nℹ️ Daily withdrawal limit remains unchanged.");
+            } else {
+                System.out.println(
+                        "\nℹ️ Daily withdrawal limit of "
+                                + MoneyUtil.format(newLimit)
+                                + " remains unchanged."
+                );
+            }
+        } else if (newLimit == null) {
+            System.out.println("\n✅ Daily withdrawal limit removed successfully!");
+        } else {
+            System.out.println(
+                    "\n✅ Daily withdrawal limit updated to " + MoneyUtil.format(newLimit) + "!"
+            );
+        }
+    }
+
+    private void handlePinChange() {
+        System.out.print("Enter current 4-digit PIN: ");
+        String currentPin = scanner.nextLine().trim();
+        System.out.print("Enter new 4-digit PIN: ");
+        String newPin = scanner.nextLine().trim();
+
+        bankingService.changePin(currentPin, newPin);
+        System.out.println("\n✅ Security PIN changed successfully!");
+    }
 
     private void handleLogout() {
         bankingService.logout();
