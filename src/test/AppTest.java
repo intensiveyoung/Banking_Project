@@ -1,14 +1,26 @@
+import domain.AccountNumberGenerator;
+import domain.BankAccount;
+import domain.SecurityQuestion;
+import domain.SecurityUtil;
+import domain.Transaction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import repository.BankAccountDAO;
+import service.BankingService;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AppTest {
@@ -19,6 +31,7 @@ class AppTest {
 
     @BeforeEach
     void setUpOutputBuffer() {
+        AccountNumberGenerator.reset();
         testOut = new ByteArrayOutputStream();
         System.setOut(new PrintStream(testOut));
     }
@@ -38,13 +51,21 @@ class AppTest {
         return testOut.toString();
     }
 
+    private void runApp() {
+        runApp(new BankingService(new InMemoryBankAccountDAO()));
+    }
+
+    private void runApp(BankingService bankingService) {
+        new App(bankingService).runAppLoop();
+    }
+
     @Test
     @DisplayName("UI Test: Unauthenticated menu handles exit cleanly")
     void testUnauthenticatedMenuExit() {
         // Option 3 is exit on unauthenticated gateway menu shell
         provideMockInput("3\n");
 
-        App.main(new String[]{});
+        runApp();
 
         String output = getConsoleOutput();
         assertTrue(output.contains("=== WELCOME TO CORE BANKING SYSTEM ==="));
@@ -57,10 +78,10 @@ class AppTest {
         // Sequence: 99 (invalid choice), then 3 (exit system to stop loop)
         provideMockInput("99\n3\n");
 
-        App.main(new String[]{});
+        runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("❌ Invalid choice! Please select an option between 1 and 3."));
+        assertTrue(output.contains("Invalid choice! Please select an option between 1 and 3."));
     }
 
     @Test
@@ -73,10 +94,10 @@ class AppTest {
         // 3 (Exit System)
         provideMockInput("1\nTestingUser\nNOT_A_NUMBER\n3\n");
 
-        App.main(new String[]{});
+        runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("❌ ERROR: Invalid numeric input format entered."));
+        assertTrue(output.contains("ERROR: Invalid numeric input format entered."));
     }
 
     @Test
@@ -88,11 +109,223 @@ class AppTest {
         // 3 (Exit System)
         provideMockInput("\n\n3\n");
 
-        App.main(new String[]{});
+        runApp();
 
         String output = getConsoleOutput();
         assertTrue(output.contains("Thank you for banking with us. Goodbye!"));
         // Confirm it didn't trigger invalid choice warnings for the empty returns
         assertFalse(output.contains("Invalid choice"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Incorrect PIN is rejected without creating a session")
+    void testIncorrectPinRejected() {
+        provideMockInput("""
+                1
+                Secure User
+                100
+
+                1234
+                1
+                Milo
+                5
+                2
+                1001
+                9999
+                3
+                """);
+
+        runApp();
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Invalid account number or PIN entered."));
+        assertFalse(output.contains("Login successful! Welcome back, Secure User!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Correct PIN grants access to the authenticated session")
+    void testCorrectPinGrantsSessionAccess() {
+        provideMockInput("""
+                1
+                Secure User
+                100
+
+                1234
+                1
+                Milo
+                5
+                2
+                1001
+                1234
+                5
+                3
+                """);
+
+        runApp();
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Login successful! Welcome back, Secure User!"));
+        assertTrue(output.contains("SESSION: Secure User (1001)"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Account creation uses the predefined security question list")
+    void testAccountCreationWithPredefinedSecurityQuestion() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = new BankingService(accountDAO);
+        provideMockInput("""
+                1
+                Question User
+                100
+
+                1234
+                4
+                Dune
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        assertNotNull(account);
+        assertEquals(SecurityQuestion.FAVORITE_BOOK.getText(), account.getSecurityQuestion());
+        assertEquals(
+                SecurityUtil.hashSecurityAnswer("dune", account.getPinSalt()),
+                account.getSecurityAnswerHash()
+        );
+
+        String output = getConsoleOutput();
+        for (SecurityQuestion question : SecurityQuestion.values()) {
+            assertTrue(output.contains(question.getText()));
+        }
+    }
+
+    @Test
+    @DisplayName("UI Test: Legacy account completes security enrollment and logs in")
+    void testLegacyAccountSecurityEnrollment() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        accountDAO.saveAccount(new BankAccount("1001", "Legacy User", 100.00, null));
+        BankingService bankingService = new BankingService(accountDAO);
+        provideMockInput("""
+                2
+                1001
+                Legacy User
+                2468
+                2
+                  NAIROBI
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        assertNotNull(account.getPinHash());
+        assertNotNull(account.getPinSalt());
+        assertEquals(SecurityQuestion.BIRTH_CITY.getText(), account.getSecurityQuestion());
+        assertEquals(
+                SecurityUtil.hashSecurityAnswer("nairobi", account.getPinSalt()),
+                account.getSecurityAnswerHash()
+        );
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Account security enrollment completed successfully!"));
+        assertTrue(output.contains("Login successful! Welcome back, Legacy User!"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Forgotten PIN reset verifies the answer and grants access")
+    void testForgottenPinResetFlow() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = new BankingService(accountDAO);
+        bankingService.openAccount(
+                "Reset User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FAVORITE_BOOK.getText(),
+                "Dune"
+        );
+        bankingService.logout();
+        provideMockInput("""
+                2
+                1001
+                RESET
+                  DUNE
+                5678
+                5
+                2
+                1001
+                5678
+                5
+                3
+                """);
+
+        runApp(bankingService);
+
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        assertEquals(SecurityUtil.hashPin("5678", account.getPinSalt()), account.getPinHash());
+        assertEquals(
+                SecurityUtil.hashSecurityAnswer("dune", account.getPinSalt()),
+                account.getSecurityAnswerHash()
+        );
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Security question: " + SecurityQuestion.FAVORITE_BOOK.getText()));
+        assertTrue(output.contains("Security answer verified successfully!"));
+        assertTrue(output.contains("Login successful! Welcome back, Reset User!"));
+    }
+
+    private static final class InMemoryBankAccountDAO implements BankAccountDAO {
+        private final Map<String, BankAccount> accounts = new HashMap<>();
+
+        @Override
+        public void saveAccount(BankAccount account) {
+            accounts.put(account.getAccountNumber(), account);
+        }
+
+        @Override
+        public BankAccount findAccountByNumber(String accountNumber) {
+            return accounts.get(accountNumber);
+        }
+
+        @Override
+        public void updateAccountBalance(String accountNumber, double newBalance) {
+            if (!accounts.containsKey(accountNumber)) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+        }
+
+        @Override
+        public void updateAccountSecurity(String accountNumber, String pinHash, String pinSalt,
+                                          String securityQuestion, String securityAnswerHash) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+            account.setPinHash(pinHash);
+            account.setPinSalt(pinSalt);
+            account.setSecurityQuestion(securityQuestion);
+            account.setSecurityAnswerHash(securityAnswerHash);
+        }
+
+        @Override
+        public void logTransaction(String accountNumber, Transaction transaction) {
+            if (!accounts.containsKey(accountNumber)) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+        }
+
+        @Override
+        public List<Transaction> getTransactionHistory(String accountNumber) {
+            BankAccount account = accounts.get(accountNumber);
+            return account == null ? List.of() : account.getTransactionHistory();
+        }
+
+        @Override
+        public String getMaxAccountNumber() {
+            return accounts.keySet().stream().max(String::compareTo).orElse(null);
+        }
     }
 }

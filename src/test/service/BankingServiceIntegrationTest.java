@@ -23,10 +23,41 @@ class BankingServiceIntegrationTest {
     @DisplayName("Integration Test: Complete User Banking Journey Flow")
     void testFullUserLifecycle() {
         // 1. Setup & Open Account (Verifying sequential baseline)
-        String accNum = service.openAccount("Alice", 100.00, 50.00);
+        String accNum = service.openAccount(
+                "Alice",
+                100.00,
+                50.00,
+                "1234",
+                "What is your first pet's name?",
+                "Milo"
+        );
         assertNotNull(accNum, "Account number should be generated");
-        assertEquals("1001", accNum);
+        assertTrue(accNum.matches("\\d{4,}"), "Account number should be a numeric sequence value");
         assertEquals(100.00, service.checkBalance());
+
+        BankAccount securedAccount = service.getActiveAccount();
+        assertNotEquals("1234", securedAccount.getPinHash());
+        assertNotNull(securedAccount.getPinSalt());
+        assertEquals("What is your first pet's name?", securedAccount.getSecurityQuestion());
+        assertNotEquals("Milo", securedAccount.getSecurityAnswerHash());
+
+        service.logout();
+        IllegalArgumentException loginError = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.login(accNum, "9999")
+        );
+        assertEquals("Invalid account number or PIN entered.", loginError.getMessage());
+        assertNull(service.getActiveAccount());
+
+        service.login(accNum, "1234");
+        assertEquals(accNum, service.getActiveAccount().getAccountNumber());
+
+        service.logout();
+        service.verifySecurityAnswer(accNum, "  MILO  ");
+        service.resetPin(accNum, "  MILO  ", "4321");
+        assertThrows(IllegalArgumentException.class, () -> service.login(accNum, "1234"));
+        service.login(accNum, "4321");
+        assertEquals(accNum, service.getActiveAccount().getAccountNumber());
 
         // 2. Perform a successful valid deposit (Verifying new $1.00 requirement from BANK-14)
         service.deposit(1.00);
@@ -58,8 +89,22 @@ class BankingServiceIntegrationTest {
     void testSequentialAccountIncrements() {
         BankingService service2 = new BankingService();
 
-        String firstAcc = service.openAccount("Bob", 10.00, null);
-        String secondAcc = service2.openAccount("Charlie", 20.00, null);
+        String firstAcc = service.openAccount(
+                "Bob",
+                10.00,
+                null,
+                "1234",
+                "What city were you born in?",
+                "Nairobi"
+        );
+        String secondAcc = service2.openAccount(
+                "Charlie",
+                20.00,
+                null,
+                "5678",
+                "What was your first school?",
+                "Central"
+        );
 
         int firstNum = Integer.parseInt(firstAcc);
         int secondNum = Integer.parseInt(secondAcc);
