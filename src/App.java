@@ -5,6 +5,7 @@ import domain.MoneyUtil;
 import domain.SecurityQuestion;
 import domain.Transaction;
 import domain.TransactionStatus;
+import domain.TransactionType;
 import service.BankingService;
 
 import java.time.Clock;
@@ -99,8 +100,8 @@ public class App {
         System.out.println("2. Withdraw Funds");
         System.out.println("3. Check Account Balance");
         System.out.println("4. View Transaction Ledger History");
-        System.out.println("5. Logout");
-        System.out.println("6. Profile & Security Settings");
+        System.out.println("5. Profile & Security Settings");
+        System.out.println("6. Logout");
         System.out.println("=================================");
 
         String choice = getValidMenuChoice("Select an option (1-6): ");
@@ -110,8 +111,8 @@ public class App {
             case "2" -> handleWithdrawal();
             case "3" -> handleCheckBalance();
             case "4" -> handleTransactionHistory();
-            case "5" -> handleLogout();
-            case "6" -> handleProfileSettings();
+            case "5" -> handleProfileSettings();
+            case "6" -> handleLogout();
             default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
         }
         return true;
@@ -354,6 +355,94 @@ public class App {
     }
 
     private void handleTransactionHistory() {
+        boolean ledgerMenuOpen = true;
+        while (ledgerMenuOpen) {
+            System.out.println("\n========== TRANSACTION LEDGER FILTERS ==========");
+            System.out.println("1. Filter by Duration");
+            System.out.println("2. Filter by Type");
+            System.out.println("3. Combined Filter (Type + Duration)");
+            System.out.println("4. Back");
+            System.out.println("================================================");
+
+            String choice = getValidMenuChoice("Select an option (1-4): ");
+            switch (choice) {
+                case "1" -> handleDurationHistoryFilter(null);
+                case "2" -> handleTransactionTypeHistoryFilter();
+                case "3" -> handleCombinedHistoryFilter();
+                case "4" -> ledgerMenuOpen = false;
+                default -> System.out.println(
+                        "\n❌ Invalid choice! Please select an option between 1 and 4."
+                );
+            }
+        }
+    }
+
+    private void handleDurationHistoryFilter(TransactionType transactionType) {
+        try {
+            HistoryFilterCriteria criteria = promptForDurationCriteria();
+            if (criteria == null) {
+                return;
+            }
+
+            List<Transaction> history = bankingService.getTransactionHistory(
+                    transactionType,
+                    criteria.durationFilter(),
+                    criteria.startDate(),
+                    criteria.endDate()
+            );
+            displayTransactionHistory(history);
+        } catch (DateTimeParseException e) {
+            System.out.println(
+                    "\n⚠️ Invalid date format. Please use DD/MM/YYYY "
+                            + "(e.g., 6/6/2026 or 06/06/2026)."
+            );
+        }
+    }
+
+    private void handleTransactionTypeHistoryFilter() {
+        TransactionType transactionType = promptForTransactionType();
+        if (transactionType == null) {
+            return;
+        }
+        displayTransactionHistory(
+                bankingService.getTransactionHistory(
+                        transactionType,
+                        DurationFilter.ALL_TIME
+                )
+        );
+    }
+
+    private void handleCombinedHistoryFilter() {
+        TransactionType transactionType = promptForTransactionType();
+        if (transactionType != null) {
+            handleDurationHistoryFilter(transactionType);
+        }
+    }
+
+    private TransactionType promptForTransactionType() {
+        System.out.println("\n========== SELECT TRANSACTION TYPE ==========");
+        System.out.println("1. Deposits Only");
+        System.out.println("2. Withdrawals Only");
+        System.out.println("3. Transfers Only");
+        System.out.println("4. All Types");
+        System.out.println("=============================================");
+
+        String choice = getValidMenuChoice("Select an option (1-4): ");
+        return switch (choice) {
+            case "1" -> TransactionType.DEPOSIT;
+            case "2" -> TransactionType.WITHDRAWAL;
+            case "3" -> TransactionType.TRANSFER;
+            case "4" -> TransactionType.ALL;
+            default -> {
+                System.out.println(
+                        "\n❌ Invalid choice! Please select an option between 1 and 4."
+                );
+                yield null;
+            }
+        };
+    }
+
+    private HistoryFilterCriteria promptForDurationCriteria() {
         System.out.println("\n========== SELECT TIME DURATION ==========");
         System.out.println("1. Last 1 Week");
         System.out.println("2. Last 2 Weeks");
@@ -367,52 +456,46 @@ public class App {
         System.out.println("==========================================");
 
         String choice = getValidMenuChoice("Select an option (1-9): ");
-        List<Transaction> history;
-        try {
-            history = switch (choice) {
-                case "1", "2", "3", "4", "5", "6", "7" ->
-                        bankingService.getTransactionHistory(
-                                DurationFilter.fromSelection(Integer.parseInt(choice))
-                        );
-                case "8" -> getCustomLastDaysHistory();
-                case "9" -> getCustomDateRangeHistory();
-                default -> {
-                    System.out.println(
-                            "\n❌ Invalid choice! Please select an option between 1 and 9."
+        return switch (choice) {
+            case "1", "2", "3", "4", "5", "6", "7" ->
+                    new HistoryFilterCriteria(
+                            DurationFilter.fromSelection(Integer.parseInt(choice)),
+                            null,
+                            null
                     );
-                    yield null;
-                }
-            };
-        } catch (DateTimeParseException e) {
-            System.out.println(
-                    "\n⚠️ Invalid date format. Please use DD/MM/YYYY "
-                            + "(e.g., 6/6/2026 or 06/06/2026)."
-            );
-            return;
-        }
-
-        if (history == null) {
-            return;
-        }
-        if (history.isEmpty()) {
-            System.out.println("\nℹ️ No transactions found for the selected time window.");
-            return;
-        }
-
-        printTransactionHistory(history);
+            case "8" -> getCustomLastDaysCriteria();
+            case "9" -> getCustomDateRangeCriteria();
+            default -> {
+                System.out.println(
+                        "\n❌ Invalid choice! Please select an option between 1 and 9."
+                );
+                yield null;
+            }
+        };
     }
 
-    private List<Transaction> getCustomLastDaysHistory() {
+    private HistoryFilterCriteria getCustomLastDaysCriteria() {
         System.out.print("Enter number of days (e.g., 10): ");
         String daysInput = scanner.nextLine().trim();
+        int days;
         try {
-            return bankingService.getTransactionHistoryForLastDays(Integer.parseInt(daysInput));
+            days = Integer.parseInt(daysInput);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Number of days must be a positive integer.");
         }
+        if (days <= 0) {
+            throw new IllegalArgumentException("Number of days must be a positive integer.");
+        }
+
+        LocalDateTime endDate = LocalDateTime.now(clock);
+        return new HistoryFilterCriteria(
+                DurationFilter.ALL_TIME,
+                endDate.minusDays(days),
+                endDate
+        );
     }
 
-    private List<Transaction> getCustomDateRangeHistory() {
+    private HistoryFilterCriteria getCustomDateRangeCriteria() {
         System.out.print("Enter start date (DD/MM/YYYY): ");
         LocalDate startDate = DateUtil.parseFlexibleDate(scanner.nextLine());
 
@@ -435,13 +518,29 @@ public class App {
 
         LocalDateTime startDateTime = startDate.atStartOfDay();
         LocalDateTime endDateTime = endDate.atTime(LocalTime.of(23, 59, 59));
-        return bankingService.getTransactionHistoryByDateRange(startDateTime, endDateTime);
+        return new HistoryFilterCriteria(
+                DurationFilter.ALL_TIME,
+                startDateTime,
+                endDateTime
+        );
     }
 
+    private void displayTransactionHistory(List<Transaction> history) {
+        if (history.isEmpty()) {
+            System.out.println("\nℹ️ No transactions found matching the selected criteria.");
+            return;
+        }
+        printTransactionHistory(history);
+    }
+
+    private record HistoryFilterCriteria(DurationFilter durationFilter,
+                                         LocalDateTime startDate,
+                                         LocalDateTime endDate) {}
+
     private void printTransactionHistory(List<Transaction> history) {
-        System.out.println("\n=================== TRANSACTION AUDIT LEDGER ===================");
+        System.out.println("\n========================= TRANSACTION AUDIT LEDGER =========================");
         System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n", "Timestamp", "Type", "Amount", "Result Balance", "Status");
-        System.out.println("----------------------------------------------------------------");
+        System.out.println("----------------------------------------------------------------------------");
 
         for (Transaction tx : history) {
             String balanceStr = (tx.getStatus() == TransactionStatus.FAILED) ? "N/A (Null)" : String.format("%s", MoneyUtil.format(tx.getResultingBalance()));
@@ -453,7 +552,7 @@ public class App {
                     tx.getStatus()
             );
         }
-        System.out.println("================================================================");
+        System.out.println("============================================================================");
     }
 
     private double readDoubleInput() {

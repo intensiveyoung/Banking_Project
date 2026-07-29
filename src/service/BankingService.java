@@ -6,6 +6,7 @@ import domain.DurationFilter;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
+import domain.TransactionType;
 import repository.BankAccountDAO;
 import repository.PostgresBankAccountDAO;
 
@@ -282,8 +283,34 @@ public class BankingService {
     }
 
     public List<Transaction> getTransactionHistory(DurationFilter filter) {
+        return getTransactionHistory(null, filter);
+    }
+
+    public List<Transaction> getTransactionHistory(TransactionType type, DurationFilter filter) {
         ensureAccountSessionExists();
-        return accountDAO.getTransactionHistoryFiltered(activeAccountNumber, filter);
+        DurationFilter resolvedFilter = filter == null ? DurationFilter.ALL_TIME : filter;
+        return accountDAO.getTransactionHistoryFiltered(
+                activeAccountNumber,
+                type,
+                resolvedFilter,
+                null,
+                null
+        );
+    }
+
+    public List<Transaction> getTransactionHistory(TransactionType type, DurationFilter filter,
+                                                   LocalDateTime startDate,
+                                                   LocalDateTime endDate) {
+        ensureAccountSessionExists();
+        validateHistoryDateRange(startDate, endDate);
+        DurationFilter resolvedFilter = filter == null ? DurationFilter.ALL_TIME : filter;
+        return accountDAO.getTransactionHistoryFiltered(
+                activeAccountNumber,
+                type,
+                resolvedFilter,
+                startDate,
+                endDate
+        );
     }
 
     public List<Transaction> getTransactionHistoryForLastDays(int days) {
@@ -303,6 +330,16 @@ public class BankingService {
     public List<Transaction> getTransactionHistoryByDateRange(LocalDateTime startDate,
                                                               LocalDateTime endDate) {
         ensureAccountSessionExists();
+        validateHistoryDateRange(startDate, endDate);
+        LocalDateTime resolvedEndDate = endDate == null ? LocalDateTime.now(clock) : endDate;
+        return accountDAO.getTransactionHistoryByDateRange(
+                activeAccountNumber,
+                startDate,
+                resolvedEndDate
+        );
+    }
+
+    private void validateHistoryDateRange(LocalDateTime startDate, LocalDateTime endDate) {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime resolvedEndDate = endDate == null ? now : endDate;
         if (startDate != null && startDate.isAfter(now)) {
@@ -311,11 +348,6 @@ public class BankingService {
         if (startDate != null && startDate.isAfter(resolvedEndDate)) {
             throw new IllegalArgumentException("Start date cannot be after end date.");
         }
-        return accountDAO.getTransactionHistoryByDateRange(
-                activeAccountNumber,
-                startDate,
-                resolvedEndDate
-        );
     }
 
     public BankAccount getActiveAccount() {

@@ -87,6 +87,19 @@ class AppTest {
         return bankingService;
     }
 
+    private BankingService createHistoryService(InMemoryBankAccountDAO accountDAO, Clock clock) {
+        BankingService bankingService = new BankingService(accountDAO, clock);
+        bankingService.openAccount(
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        return bankingService;
+    }
+
     @Test
     @DisplayName("UI Test: Unauthenticated menu handles exit cleanly")
     void testUnauthenticatedMenuExit() {
@@ -156,7 +169,7 @@ class AppTest {
                 1234
                 1
                 Milo
-                5
+                6
                 2
                 1001
                 9999
@@ -181,11 +194,11 @@ class AppTest {
                 1234
                 1
                 Milo
-                5
+                6
                 2
                 1001
                 1234
-                5
+                6
                 3
                 """);
 
@@ -209,7 +222,7 @@ class AppTest {
                 1234
                 4
                 Dune
-                5
+                6
                 3
                 """);
 
@@ -242,7 +255,7 @@ class AppTest {
                 2468
                 2
                   NAIROBI
-                5
+                6
                 3
                 """);
 
@@ -282,11 +295,11 @@ class AppTest {
                 RESET
                   DUNE
                 5678
-                5
+                6
                 2
                 1001
                 5678
-                5
+                6
                 3
                 """);
 
@@ -311,11 +324,11 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, null);
         provideMockInput("""
-                6
+                5
                 1
                 Updated Profile User
                 4
-                5
+                6
                 3
                 """);
 
@@ -334,11 +347,11 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, null);
         provideMockInput("""
-                6
+                5
                 1
                 Profile User
                 4
-                5
+                6
                 3
                 """);
 
@@ -358,11 +371,11 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, null);
         provideMockInput("""
-                6
+                5
                 2
                 75.50
                 4
-                5
+                6
                 3
                 """);
 
@@ -381,11 +394,11 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, 400.00);
         provideMockInput("""
-                6
+                5
                 2
                 400
                 4
-                5
+                6
                 3
                 """);
 
@@ -405,11 +418,11 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, 50.00);
         provideMockInput("""
-                6
+                5
                 2
 
                 4
-                5
+                6
                 3
                 """);
 
@@ -425,16 +438,16 @@ class AppTest {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, null);
         provideMockInput("""
-                6
+                5
                 3
                 1234
                 5678
                 4
-                5
+                6
                 2
                 1001
                 5678
-                5
+                6
                 3
                 """);
 
@@ -504,7 +517,9 @@ class AppTest {
         provideMockInput("""
                 4
                 1
-                5
+                1
+                4
+                6
                 3
                 """);
 
@@ -537,9 +552,11 @@ class AppTest {
         account.hydrateTransaction(createTransaction(44.44, LocalDateTime.now(fixedClock).minusDays(11)));
         provideMockInput("""
                 4
+                1
                 8
                 10
-                5
+                4
+                6
                 3
                 """);
 
@@ -572,10 +589,12 @@ class AppTest {
         account.hydrateTransaction(createTransaction(66.66, LocalDateTime.of(2026, 7, 13, 10, 0)));
         provideMockInput("""
                 4
+                1
                 9
                 10/07/2026
                 12/07/2026
-                5
+                4
+                6
                 3
                 """);
 
@@ -605,9 +624,11 @@ class AppTest {
         );
         provideMockInput("""
                 4
+                1
                 9
                 2026-07-10
-                5
+                4
+                6
                 3
                 """);
 
@@ -621,9 +642,158 @@ class AppTest {
         );
     }
 
+    @Test
+    @DisplayName("UI Test: Transaction type filter returns deposits only")
+    void testDepositTransactionTypeFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addTransactionTypeSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                2
+                1
+                4
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("$77.01"));
+        assertFalse(output.contains("$77.02"));
+        assertFalse(output.contains("$77.03"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Transaction type filter returns withdrawals only")
+    void testWithdrawalTransactionTypeFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addTransactionTypeSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                2
+                2
+                4
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertFalse(output.contains("$77.01"));
+        assertTrue(output.contains("$77.02"));
+        assertFalse(output.contains("$77.03"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Transaction type filter returns transfers only")
+    void testTransferTransactionTypeFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addTransactionTypeSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                2
+                3
+                4
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertFalse(output.contains("$77.01"));
+        assertFalse(output.contains("$77.02"));
+        assertTrue(output.contains("$77.03"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Combined filter applies transaction type and duration")
+    void testCombinedTransactionHistoryFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        account.hydrateTransaction(
+                createTransaction(
+                        TransactionType.DEPOSIT,
+                        88.01,
+                        LocalDateTime.now(fixedClock).minusDays(6)
+                )
+        );
+        account.hydrateTransaction(
+                createTransaction(
+                        TransactionType.DEPOSIT,
+                        88.02,
+                        LocalDateTime.now(fixedClock).minusDays(8)
+                )
+        );
+        account.hydrateTransaction(
+                createTransaction(
+                        TransactionType.WITHDRAWAL,
+                        88.03,
+                        LocalDateTime.now(fixedClock).minusDays(5)
+                )
+        );
+        provideMockInput("""
+                4
+                3
+                1
+                1
+                4
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("$88.01"));
+        assertFalse(output.contains("$88.02"));
+        assertFalse(output.contains("$88.03"));
+    }
+
+    private void addTransactionTypeSamples(InMemoryBankAccountDAO accountDAO, Clock clock) {
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        LocalDateTime timestamp = LocalDateTime.now(clock).minusHours(1);
+        account.hydrateTransaction(
+                createTransaction(TransactionType.DEPOSIT, 77.01, timestamp)
+        );
+        account.hydrateTransaction(
+                createTransaction(TransactionType.WITHDRAWAL, 77.02, timestamp.plusMinutes(1))
+        );
+        account.hydrateTransaction(
+                createTransaction(TransactionType.TRANSFER, 77.03, timestamp.plusMinutes(2))
+        );
+    }
+
     private Transaction createTransaction(double amount, LocalDateTime timestamp) {
+        return createTransaction(TransactionType.DEPOSIT, amount, timestamp);
+    }
+
+    private Transaction createTransaction(TransactionType type, double amount,
+                                          LocalDateTime timestamp) {
         return new Transaction(
-                TransactionType.DEPOSIT,
+                type,
                 amount,
                 timestamp,
                 amount,
@@ -705,17 +875,44 @@ class AppTest {
         @Override
         public List<Transaction> getTransactionHistoryFiltered(String accountNumber,
                                                                DurationFilter filter) {
+            return getTransactionHistoryFiltered(
+                    accountNumber,
+                    null,
+                    filter,
+                    null,
+                    null
+            );
+        }
+
+        @Override
+        public List<Transaction> getTransactionHistoryFiltered(String accountNumber,
+                                                               TransactionType type,
+                                                               DurationFilter filter,
+                                                               LocalDateTime customStart,
+                                                               LocalDateTime customEnd) {
             BankAccount account = accounts.get(accountNumber);
             if (account == null) {
                 return List.of();
             }
 
-            LocalDateTime cutoff = filter == DurationFilter.ALL_TIME
-                    ? null
-                    : LocalDateTime.now(clock).minusDays(filter.getDays());
+            LocalDateTime startDate = customStart;
+            LocalDateTime endDate = customEnd;
+            if (startDate == null && endDate == null && filter != DurationFilter.ALL_TIME) {
+                startDate = LocalDateTime.now(clock).minusDays(filter.getDays());
+            } else if (startDate != null && endDate == null) {
+                endDate = LocalDateTime.now(clock);
+            }
+
+            LocalDateTime resolvedStartDate = startDate;
+            LocalDateTime resolvedEndDate = endDate;
             return account.getTransactionHistory().stream()
-                    .filter(transaction -> cutoff == null
-                            || !transaction.getTimestamp().isBefore(cutoff))
+                    .filter(transaction -> type == null
+                            || type == TransactionType.ALL
+                            || transaction.getType() == type)
+                    .filter(transaction -> resolvedStartDate == null
+                            || !transaction.getTimestamp().isBefore(resolvedStartDate))
+                    .filter(transaction -> resolvedEndDate == null
+                            || !transaction.getTimestamp().isAfter(resolvedEndDate))
                     .sorted(Comparator.comparing(Transaction::getTimestamp).reversed())
                     .toList();
         }
