@@ -292,6 +292,40 @@ class BankingServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("Integration Test: Mini-statement limits recent PostgreSQL transactions")
+    void testMiniStatementLimitsRecentTransactions() {
+        String accountNumber = openTrackedAccount(
+                service,
+                "Mini Statement User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        LocalDateTime startingTimestamp = LocalDateTime.now();
+        for (int index = 1; index <= 5; index++) {
+            cleanupDAO.logTransaction(
+                    accountNumber,
+                    new Transaction(
+                            TransactionType.DEPOSIT,
+                            300.00 + index,
+                            startingTimestamp.plusSeconds(index),
+                            100.00 + index,
+                            TransactionStatus.SUCCESS
+                    )
+            );
+        }
+
+        List<Transaction> miniStatement = service.getMiniStatement(3);
+
+        assertEquals(3, miniStatement.size());
+        assertEquals(305.00, miniStatement.get(0).getAmount());
+        assertEquals(304.00, miniStatement.get(1).getAmount());
+        assertEquals(303.00, miniStatement.get(2).getAmount());
+    }
+
+    @Test
     @DisplayName("Integration Test: Operations should fail if no account is active")
     void testStateProtectionWithoutAccount() {
         assertThrows(IllegalStateException.class, () -> service.deposit(50.00));
