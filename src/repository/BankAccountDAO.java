@@ -1,7 +1,10 @@
 package repository;
 
 import domain.BankAccount;
+import domain.DurationFilter;
 import domain.Transaction;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface BankAccountDAO {
@@ -13,5 +16,9 @@ public interface BankAccountDAO {
                                String securityQuestion, String securityAnswerHash);
     void logTransaction(String accountNumber, Transaction transaction);
     List<Transaction> getTransactionHistory(String accountNumber);
+    List<Transaction> getTransactionHistoryFiltered(String accountNumber, DurationFilter filter);
+    List<Transaction> getTransactionHistoryByDateRange(String accountNumber, LocalDateTime startDate,
+                                                       LocalDateTime endDate);
+    void deleteAccountAndTransactions(String accountNumber);
     String getMaxAccountNumber();
 }

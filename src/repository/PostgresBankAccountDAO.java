@@ -2,16 +2,27 @@ package repository;
 
 import domain.*;
 import java.sql.*;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public class PostgresBankAccountDAO implements BankAccountDAO {
     private final String url = "jdbc:postgresql://localhost:5433/banking_db"; // edit this if different port/db name is used
     private final String user = "postgres";
     private final String password = "user";
+    private final Clock clock;
 
     public PostgresBankAccountDAO() {
+        this(Clock.systemDefaultZone());
+    }
+
+    public PostgresBankAccountDAO(Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "Clock is required.");
+
         // Automatically set up the relational schema tables if they do not exist on boot
         try (Connection conn = getConnection()) {
             String createAccountsTable = """
@@ -230,25 +241,179 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
 
     @Override
     public List<Transaction> getTransactionHistory(String accountNumber) {
-        List<Transaction> list = new ArrayList<>();
         String sql = "SELECT * FROM transactions WHERE account_number = ? ORDER BY timestamp ASC";
         try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, accountNumber);
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    TransactionType type = TransactionType.valueOf(rs.getString("type"));
-                    double amount = rs.getDouble("amount");
-                    LocalDateTime time = rs.getTimestamp("timestamp").toLocalDateTime();
-                    double resBalVal = rs.getDouble("resulting_balance");
-                    Double resBal = rs.wasNull() ? null : resBalVal;
-                    TransactionStatus status = TransactionStatus.valueOf(rs.getString("status"));
-
-                    list.add(new Transaction(type, amount, time, resBal, status));
-                }
-            }
+            return readTransactions(pstmt);
         } catch (SQLException e) {
             throw new RuntimeException("Error fetching transaction stream mapping", e);
         }
-        return list;
+    }
+
+    @Override
+    public List<Transaction> getTransactionHistoryFiltered(String accountNumber, DurationFilter filter) {
+        Objects.requireNonNull(filter, "Duration filter is required.");
+        if (filter == DurationFilter.ALL_TIME) {
+            String sql = "SELECT * FROM transactions WHERE account_number = ? ORDER BY timestamp DESC";
+            try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, accountNumber);
+                return readTransactions(pstmt);
+            } catch (SQLException e) {
+                throw new RuntimeException("Error fetching filtered transaction history", e);
+            }
+        }
+
+        String sql = """
+                SELECT * FROM transactions
+                WHERE account_number = ? AND timestamp >= ?
+                ORDER BY timestamp DESC
+                """;
+        LocalDateTime cutoff = LocalDateTime.now(clock).minusDays(filter.getDays());
+        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, accountNumber);
+            pstmt.setTimestamp(2, Timestamp.valueOf(cutoff));
+            return readTransactions(pstmt);
+        } catch (SQLException e) {
+            throw new RuntimeException("Error fetching filtered transaction history", e);
+        }
+    }
+
+    @Override
+    public List<Transaction> getTransactionHistoryByDateRange(String accountNumber,
+                                                              LocalDateTime startDate,
+                                                              LocalDateTime endDate) {
+        LocalDateTime resolvedEndDate = endDate == null ? LocalDateTime.now(clock) : endDate;
+        if (startDate != null && startDate.isAfter(resolvedEndDate)) {
+            throw new IllegalArgumentException("Start date cannot be after end date.");
+        }
+
+        String sql;
+        if (startDate == null) {
+            sql = """
+                    SELECT * FROM transactions
+                    WHERE account_number = ? AND timestamp <= ?
+                    ORDER BY timestamp DESC
+                    """;
+        } else {
+            sql = """
+                    SELECT * FROM transactions
+                    WHERE account_number = ? AND timestamp >= ? AND timestamp <= ?
+                    ORDER BY timestamp DESC
+                    """;
+        }
+
+        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, accountNumber);
+            if (startDate == null) {
+                pstmt.setTimestamp(2, Timestamp.valueOf(resolvedEndDate));
+            } else {
+                pstmt.setTimestamp(2, Timestamp.valueOf(startDate));
+                pstmt.setTimestamp(3, Timestamp.valueOf(resolvedEndDate));
+            }
+            return readTransactions(pstmt);
+        } catch (SQLException e) {
+            throw new RuntimeException("Error fetching transaction history by date range", e);
+        }
+    }
+
+    @Override
+    public void deleteAccountAndTransactions(String accountNumber) {
+        String deleteTransactionsSql = "DELETE FROM transactions WHERE account_number = ?";
+        String deleteAccountSql = "DELETE FROM accounts WHERE account_number = ?";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement deleteTransactions = conn.prepareStatement(deleteTransactionsSql);
+                 PreparedStatement deleteAccount = conn.prepareStatement(deleteAccountSql)) {
+                deleteTransactions.setString(1, accountNumber);
+                deleteTransactions.executeUpdate();
+
+                deleteAccount.setString(1, accountNumber);
+                deleteAccount.executeUpdate();
+                conn.commit();
+            } catch (SQLException e) {
+                rollback(conn, e);
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error deleting account test data", e);
+        }
+    }
+
+    public int purgeAccountsByOwnerNames(Collection<String> ownerNames) {
+        if (ownerNames == null || ownerNames.isEmpty()) {
+            return 0;
+        }
+
+        String placeholders = String.join(
+                ", ",
+                Collections.nCopies(ownerNames.size(), "?")
+        );
+        String deleteTransactionsSql = """
+                DELETE FROM transactions
+                WHERE account_number IN (
+                    SELECT account_number FROM accounts WHERE owner_name IN (%s)
+                )
+                """.formatted(placeholders);
+        String deleteAccountsSql = "DELETE FROM accounts WHERE owner_name IN (%s)"
+                .formatted(placeholders);
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement deleteTransactions = conn.prepareStatement(deleteTransactionsSql);
+                 PreparedStatement deleteAccounts = conn.prepareStatement(deleteAccountsSql)) {
+                bindStrings(deleteTransactions, ownerNames);
+                deleteTransactions.executeUpdate();
+
+                bindStrings(deleteAccounts, ownerNames);
+                int deletedAccounts = deleteAccounts.executeUpdate();
+                conn.commit();
+                return deletedAccounts;
+            } catch (SQLException e) {
+                rollback(conn, e);
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error purging legacy test accounts", e);
+        }
+    }
+
+    private void bindStrings(PreparedStatement statement, Collection<String> values)
+            throws SQLException {
+        int index = 1;
+        for (String value : values) {
+            statement.setString(index++, value);
+        }
+    }
+
+    private void rollback(Connection connection, SQLException originalError) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackError) {
+            originalError.addSuppressed(rollbackError);
+        }
+    }
+
+    private List<Transaction> readTransactions(PreparedStatement statement) throws SQLException {
+        List<Transaction> transactions = new ArrayList<>();
+        try (ResultSet rs = statement.executeQuery()) {
+            while (rs.next()) {
+                TransactionType type = TransactionType.valueOf(rs.getString("type"));
+                double amount = rs.getDouble("amount");
+                LocalDateTime time = rs.getTimestamp("timestamp").toLocalDateTime();
+                double resultingBalanceValue = rs.getDouble("resulting_balance");
+                Double resultingBalance = rs.wasNull() ? null : resultingBalanceValue;
+                TransactionStatus status = TransactionStatus.valueOf(rs.getString("status"));
+
+                transactions.add(new Transaction(
+                        type,
+                        amount,
+                        time,
+                        resultingBalance,
+                        status
+                ));
+            }
+        }
+        return transactions;
     }
 }
