@@ -23,6 +23,7 @@ public interface BankAccountDAO {
                                                     LocalDateTime customEnd);
     List<Transaction> getTransactionHistoryByDateRange(String accountNumber, LocalDateTime startDate,
                                                        LocalDateTime endDate);
+    List<Transaction> getRecentTransactions(String accountNumber, int limit);
     void deleteAccountAndTransactions(String accountNumber);
     String getMaxAccountNumber();
 }

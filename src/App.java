@@ -358,23 +358,73 @@ public class App {
         boolean ledgerMenuOpen = true;
         while (ledgerMenuOpen) {
             System.out.println("\n========== TRANSACTION LEDGER FILTERS ==========");
-            System.out.println("1. Filter by Duration");
-            System.out.println("2. Filter by Type");
-            System.out.println("3. Combined Filter (Type + Duration)");
-            System.out.println("4. Back");
+            System.out.println("1. Quick Mini-Statement (Recent Transactions)");
+            System.out.println("2. Filter by Duration");
+            System.out.println("3. Filter by Type");
+            System.out.println("4. Combined Filter (Type + Duration)");
+            System.out.println("5. Back to Home");
             System.out.println("================================================");
+
+            String choice = getValidMenuChoice("Select an option (1-5): ");
+            switch (choice) {
+                case "1" -> handleMiniStatementMenu();
+                case "2" -> handleDurationHistoryFilter(null);
+                case "3" -> handleTransactionTypeHistoryFilter();
+                case "4" -> handleCombinedHistoryFilter();
+                case "5" -> ledgerMenuOpen = false;
+                default -> System.out.println(
+                        "\n❌ Invalid choice! Please select an option between 1 and 5."
+                );
+            }
+        }
+    }
+
+    private void handleMiniStatementMenu() {
+        boolean miniStatementMenuOpen = true;
+        while (miniStatementMenuOpen) {
+            System.out.println("\n========== MINI-STATEMENT OPTIONS ==========");
+            System.out.println("1. Last 5 Transactions");
+            System.out.println("2. Last 10 Transactions");
+            System.out.println("3. Custom Number of Recent Transactions");
+            System.out.println("4. Back");
+            System.out.println("============================================");
 
             String choice = getValidMenuChoice("Select an option (1-4): ");
             switch (choice) {
-                case "1" -> handleDurationHistoryFilter(null);
-                case "2" -> handleTransactionTypeHistoryFilter();
-                case "3" -> handleCombinedHistoryFilter();
-                case "4" -> ledgerMenuOpen = false;
+                case "1" -> displayMiniStatement(5);
+                case "2" -> displayMiniStatement(10);
+                case "3" -> displayMiniStatement(promptForMiniStatementCount());
+                case "4" -> miniStatementMenuOpen = false;
                 default -> System.out.println(
                         "\n❌ Invalid choice! Please select an option between 1 and 4."
                 );
             }
         }
+    }
+
+    private int promptForMiniStatementCount() {
+        System.out.print("Enter number of recent transactions to view: ");
+        String countInput = scanner.nextLine().trim();
+        try {
+            return Integer.parseInt(countInput);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Number of recent transactions must be a positive integer."
+            );
+        }
+    }
+
+    private void displayMiniStatement(int count) {
+        List<Transaction> history = bankingService.getMiniStatement(count);
+        if (history.isEmpty()) {
+            System.out.println("\nℹ️ No recent transactions found for this account.");
+            return;
+        }
+
+        System.out.println("\n=== MINI-STATEMENT (LAST " + count + " TRANSACTIONS) ===");
+        printTransactionColumns();
+        printTransactionRows(history);
+        System.out.println("=======================================================");
     }
 
     private void handleDurationHistoryFilter(TransactionType transactionType) {
@@ -539,9 +589,17 @@ public class App {
 
     private void printTransactionHistory(List<Transaction> history) {
         System.out.println("\n========================= TRANSACTION AUDIT LEDGER =========================");
+        printTransactionColumns();
+        printTransactionRows(history);
+        System.out.println("============================================================================");
+    }
+
+    private void printTransactionColumns() {
         System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n", "Timestamp", "Type", "Amount", "Result Balance", "Status");
         System.out.println("----------------------------------------------------------------------------");
+    }
 
+    private void printTransactionRows(List<Transaction> history) {
         for (Transaction tx : history) {
             String balanceStr = (tx.getStatus() == TransactionStatus.FAILED) ? "N/A (Null)" : String.format("%s", MoneyUtil.format(tx.getResultingBalance()));
             System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n",
@@ -552,7 +610,6 @@ public class App {
                     tx.getStatus()
             );
         }
-        System.out.println("============================================================================");
     }
 
     private double readDoubleInput() {

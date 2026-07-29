@@ -516,9 +516,9 @@ class AppTest {
         account.hydrateTransaction(createTransaction(22.22, LocalDateTime.now(fixedClock).minusDays(8)));
         provideMockInput("""
                 4
+                2
                 1
-                1
-                4
+                5
                 6
                 3
                 """);
@@ -552,10 +552,10 @@ class AppTest {
         account.hydrateTransaction(createTransaction(44.44, LocalDateTime.now(fixedClock).minusDays(11)));
         provideMockInput("""
                 4
-                1
+                2
                 8
                 10
-                4
+                5
                 6
                 3
                 """);
@@ -589,11 +589,11 @@ class AppTest {
         account.hydrateTransaction(createTransaction(66.66, LocalDateTime.of(2026, 7, 13, 10, 0)));
         provideMockInput("""
                 4
-                1
+                2
                 9
                 10/07/2026
                 12/07/2026
-                4
+                5
                 6
                 3
                 """);
@@ -624,10 +624,10 @@ class AppTest {
         );
         provideMockInput("""
                 4
-                1
+                2
                 9
                 2026-07-10
-                4
+                5
                 6
                 3
                 """);
@@ -643,6 +643,128 @@ class AppTest {
     }
 
     @Test
+    @DisplayName("UI Test: Mini-statement returns the last 5 transactions")
+    void testMiniStatementLastFiveTransactions() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addMiniStatementSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                1
+                1
+                4
+                5
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("=== MINI-STATEMENT (LAST 5 TRANSACTIONS) ==="));
+        assertTrue(output.contains("$212.00"));
+        assertTrue(output.contains("$208.00"));
+        assertFalse(output.contains("$207.00"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Mini-statement returns the last 10 transactions")
+    void testMiniStatementLastTenTransactions() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addMiniStatementSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                1
+                2
+                4
+                5
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("=== MINI-STATEMENT (LAST 10 TRANSACTIONS) ==="));
+        assertTrue(output.contains("$212.00"));
+        assertTrue(output.contains("$203.00"));
+        assertFalse(output.contains("$202.00"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Mini-statement returns a custom transaction count")
+    void testMiniStatementCustomTransactionCount() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+        addMiniStatementSamples(accountDAO, fixedClock);
+        provideMockInput("""
+                4
+                1
+                3
+                3
+                4
+                5
+                6
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("=== MINI-STATEMENT (LAST 3 TRANSACTIONS) ==="));
+        assertTrue(output.contains("$212.00"));
+        assertTrue(output.contains("$210.00"));
+        assertFalse(output.contains("$209.00"));
+    }
+
+    @Test
+    @DisplayName("Service Test: Mini-statement rejects non-positive transaction counts")
+    void testMiniStatementRejectsNonPositiveCount() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = createHistoryService(accountDAO, fixedClock);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.getMiniStatement(0)
+        );
+
+        assertEquals(
+                "Mini-statement transaction count must be greater than zero.",
+                error.getMessage()
+        );
+    }
+
+    private void addMiniStatementSamples(InMemoryBankAccountDAO accountDAO, Clock clock) {
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        LocalDateTime startingTimestamp = LocalDateTime.now(clock);
+        for (int index = 1; index <= 12; index++) {
+            account.hydrateTransaction(
+                    createTransaction(
+                            200.00 + index,
+                            startingTimestamp.plusMinutes(index)
+                    )
+            );
+        }
+    }
+
+    @Test
     @DisplayName("UI Test: Transaction type filter returns deposits only")
     void testDepositTransactionTypeFilter() {
         Clock fixedClock = Clock.fixed(
@@ -654,9 +776,9 @@ class AppTest {
         addTransactionTypeSamples(accountDAO, fixedClock);
         provideMockInput("""
                 4
-                2
+                3
                 1
-                4
+                5
                 6
                 3
                 """);
@@ -681,9 +803,9 @@ class AppTest {
         addTransactionTypeSamples(accountDAO, fixedClock);
         provideMockInput("""
                 4
+                3
                 2
-                2
-                4
+                5
                 6
                 3
                 """);
@@ -708,9 +830,9 @@ class AppTest {
         addTransactionTypeSamples(accountDAO, fixedClock);
         provideMockInput("""
                 4
-                2
                 3
-                4
+                3
+                5
                 6
                 3
                 """);
@@ -756,10 +878,10 @@ class AppTest {
         );
         provideMockInput("""
                 4
-                3
-                1
-                1
                 4
+                1
+                1
+                5
                 6
                 3
                 """);
@@ -934,6 +1056,18 @@ class AppTest {
                             || !transaction.getTimestamp().isBefore(startDate))
                     .filter(transaction -> !transaction.getTimestamp().isAfter(resolvedEndDate))
                     .sorted(Comparator.comparing(Transaction::getTimestamp).reversed())
+                    .toList();
+        }
+
+        @Override
+        public List<Transaction> getRecentTransactions(String accountNumber, int limit) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                return List.of();
+            }
+            return account.getTransactionHistory().stream()
+                    .sorted(Comparator.comparing(Transaction::getTimestamp).reversed())
+                    .limit(limit)
                     .toList();
         }
 
