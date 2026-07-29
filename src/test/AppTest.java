@@ -1,8 +1,11 @@
 import domain.AccountNumberGenerator;
 import domain.BankAccount;
+import domain.DurationFilter;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
+import domain.TransactionStatus;
+import domain.TransactionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +17,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +68,10 @@ class AppTest {
 
     private void runApp(BankingService bankingService) {
         new App(bankingService).runAppLoop();
+    }
+
+    private void runApp(BankingService bankingService, Clock clock) {
+        new App(bankingService, clock).runAppLoop();
     }
 
     private BankingService createAuthenticatedService(InMemoryBankAccountDAO accountDAO, Double dailyLimit) {
@@ -469,9 +481,168 @@ class AppTest {
         );
     }
 
+    @Test
+    @DisplayName("UI Test: Preset duration filters include only matching transactions")
+    void testPresetTransactionHistoryFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = new BankingService(accountDAO, fixedClock);
+        bankingService.openAccount(
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        account.hydrateTransaction(createTransaction(11.11, LocalDateTime.now(fixedClock).minusDays(6)));
+        account.hydrateTransaction(createTransaction(22.22, LocalDateTime.now(fixedClock).minusDays(8)));
+        provideMockInput("""
+                4
+                1
+                5
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("$11.11"));
+        assertFalse(output.contains("$22.22"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Custom last X days filters transaction history")
+    void testCustomLastDaysTransactionHistoryFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = new BankingService(accountDAO, fixedClock);
+        bankingService.openAccount(
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        account.hydrateTransaction(createTransaction(33.33, LocalDateTime.now(fixedClock).minusDays(9)));
+        account.hydrateTransaction(createTransaction(44.44, LocalDateTime.now(fixedClock).minusDays(11)));
+        provideMockInput("""
+                4
+                8
+                10
+                5
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("$33.33"));
+        assertFalse(output.contains("$44.44"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Custom date range filters transaction history")
+    void testCustomDateRangeTransactionHistoryFilter() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = new BankingService(accountDAO, fixedClock);
+        bankingService.openAccount(
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        BankAccount account = accountDAO.findAccountByNumber("1001");
+        account.hydrateTransaction(createTransaction(55.55, LocalDateTime.of(2026, 7, 11, 10, 0)));
+        account.hydrateTransaction(createTransaction(66.66, LocalDateTime.of(2026, 7, 13, 10, 0)));
+        provideMockInput("""
+                4
+                9
+                10/07/2026
+                12/07/2026
+                5
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        String output = getConsoleOutput();
+        assertTrue(output.contains("$55.55"));
+        assertFalse(output.contains("$66.66"));
+    }
+
+    @Test
+    @DisplayName("UI Test: Custom date range reports invalid date formats")
+    void testCustomDateRangeInvalidFormat() {
+        Clock fixedClock = Clock.fixed(
+                Instant.parse("2026-07-29T12:00:00Z"),
+                ZoneId.of("UTC")
+        );
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO(fixedClock);
+        BankingService bankingService = new BankingService(accountDAO, fixedClock);
+        bankingService.openAccount(
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        provideMockInput("""
+                4
+                9
+                2026-07-10
+                5
+                3
+                """);
+
+        runApp(bankingService, fixedClock);
+
+        assertTrue(
+                getConsoleOutput().contains(
+                        "Invalid date format. Please use DD/MM/YYYY "
+                                + "(e.g., 6/6/2026 or 06/06/2026)."
+                )
+        );
+    }
+
+    private Transaction createTransaction(double amount, LocalDateTime timestamp) {
+        return new Transaction(
+                TransactionType.DEPOSIT,
+                amount,
+                timestamp,
+                amount,
+                TransactionStatus.SUCCESS
+        );
+    }
+
     private static final class InMemoryBankAccountDAO implements BankAccountDAO {
         private final Map<String, BankAccount> accounts = new HashMap<>();
+        private final Clock clock;
         private int profileUpdateCount;
+
+        private InMemoryBankAccountDAO() {
+            this(Clock.systemDefaultZone());
+        }
+
+        private InMemoryBankAccountDAO(Clock clock) {
+            this.clock = clock;
+        }
 
         int getProfileUpdateCount() {
             return profileUpdateCount;
@@ -529,6 +700,49 @@ class AppTest {
         public List<Transaction> getTransactionHistory(String accountNumber) {
             BankAccount account = accounts.get(accountNumber);
             return account == null ? List.of() : account.getTransactionHistory();
+        }
+
+        @Override
+        public List<Transaction> getTransactionHistoryFiltered(String accountNumber,
+                                                               DurationFilter filter) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                return List.of();
+            }
+
+            LocalDateTime cutoff = filter == DurationFilter.ALL_TIME
+                    ? null
+                    : LocalDateTime.now(clock).minusDays(filter.getDays());
+            return account.getTransactionHistory().stream()
+                    .filter(transaction -> cutoff == null
+                            || !transaction.getTimestamp().isBefore(cutoff))
+                    .sorted(Comparator.comparing(Transaction::getTimestamp).reversed())
+                    .toList();
+        }
+
+        @Override
+        public List<Transaction> getTransactionHistoryByDateRange(String accountNumber,
+                                                                  LocalDateTime startDate,
+                                                                  LocalDateTime endDate) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                return List.of();
+            }
+
+            LocalDateTime resolvedEndDate = endDate == null
+                    ? LocalDateTime.now(clock)
+                    : endDate;
+            return account.getTransactionHistory().stream()
+                    .filter(transaction -> startDate == null
+                            || !transaction.getTimestamp().isBefore(startDate))
+                    .filter(transaction -> !transaction.getTimestamp().isAfter(resolvedEndDate))
+                    .sorted(Comparator.comparing(Transaction::getTimestamp).reversed())
+                    .toList();
+        }
+
+        @Override
+        public void deleteAccountAndTransactions(String accountNumber) {
+            accounts.remove(accountNumber);
         }
 
         @Override

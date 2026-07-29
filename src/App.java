@@ -1,11 +1,18 @@
 import domain.BankAccount;
+import domain.DateUtil;
+import domain.DurationFilter;
 import domain.MoneyUtil;
 import domain.SecurityQuestion;
 import domain.Transaction;
 import domain.TransactionStatus;
 import service.BankingService;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Scanner;
 
@@ -13,15 +20,25 @@ public class App {
     private final BankingService bankingService;
     private final Scanner scanner;
     private final DateTimeFormatter timeFormatter;
+    private final Clock clock;
 
     public App() {
-        this(new BankingService());
+        this(Clock.systemDefaultZone());
+    }
+
+    private App(Clock clock) {
+        this(new BankingService(clock), clock);
     }
 
     App(BankingService bankingService) {
+        this(bankingService, Clock.systemDefaultZone());
+    }
+
+    App(BankingService bankingService, Clock clock) {
         this.bankingService = bankingService;
         this.scanner = new Scanner(System.in);
         this.timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        this.clock = clock;
     }
 
     public static void main(String[] args) {
@@ -337,7 +354,91 @@ public class App {
     }
 
     private void handleTransactionHistory() {
-        List<Transaction> history = bankingService.getHistory();
+        System.out.println("\n========== SELECT TIME DURATION ==========");
+        System.out.println("1. Last 1 Week");
+        System.out.println("2. Last 2 Weeks");
+        System.out.println("3. Last 1 Month");
+        System.out.println("4. Last 3 Months");
+        System.out.println("5. Last 1 Year");
+        System.out.println("6. Last 5 Years");
+        System.out.println("7. All Time");
+        System.out.println("8. Custom Last X Days");
+        System.out.println("9. Custom Date Range (DD/MM/YYYY)");
+        System.out.println("==========================================");
+
+        String choice = getValidMenuChoice("Select an option (1-9): ");
+        List<Transaction> history;
+        try {
+            history = switch (choice) {
+                case "1", "2", "3", "4", "5", "6", "7" ->
+                        bankingService.getTransactionHistory(
+                                DurationFilter.fromSelection(Integer.parseInt(choice))
+                        );
+                case "8" -> getCustomLastDaysHistory();
+                case "9" -> getCustomDateRangeHistory();
+                default -> {
+                    System.out.println(
+                            "\n❌ Invalid choice! Please select an option between 1 and 9."
+                    );
+                    yield null;
+                }
+            };
+        } catch (DateTimeParseException e) {
+            System.out.println(
+                    "\n⚠️ Invalid date format. Please use DD/MM/YYYY "
+                            + "(e.g., 6/6/2026 or 06/06/2026)."
+            );
+            return;
+        }
+
+        if (history == null) {
+            return;
+        }
+        if (history.isEmpty()) {
+            System.out.println("\nℹ️ No transactions found for the selected time window.");
+            return;
+        }
+
+        printTransactionHistory(history);
+    }
+
+    private List<Transaction> getCustomLastDaysHistory() {
+        System.out.print("Enter number of days (e.g., 10): ");
+        String daysInput = scanner.nextLine().trim();
+        try {
+            return bankingService.getTransactionHistoryForLastDays(Integer.parseInt(daysInput));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Number of days must be a positive integer.");
+        }
+    }
+
+    private List<Transaction> getCustomDateRangeHistory() {
+        System.out.print("Enter start date (DD/MM/YYYY): ");
+        LocalDate startDate = DateUtil.parseFlexibleDate(scanner.nextLine());
+
+        System.out.print("Enter end date (DD/MM/YYYY) [Press Enter for Today]: ");
+        String endDateInput = scanner.nextLine().trim();
+        LocalDate today = LocalDate.now(clock);
+        LocalDate endDate = endDateInput.isEmpty()
+                ? today
+                : DateUtil.parseFlexibleDate(endDateInput);
+
+        if (startDate.isAfter(today)) {
+            throw new IllegalArgumentException("Start date cannot be in the future.");
+        }
+        if (endDate.isAfter(today)) {
+            throw new IllegalArgumentException("End date cannot be in the future.");
+        }
+        if (startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("Start date cannot be after end date.");
+        }
+
+        LocalDateTime startDateTime = startDate.atStartOfDay();
+        LocalDateTime endDateTime = endDate.atTime(LocalTime.of(23, 59, 59));
+        return bankingService.getTransactionHistoryByDateRange(startDateTime, endDateTime);
+    }
+
+    private void printTransactionHistory(List<Transaction> history) {
         System.out.println("\n=================== TRANSACTION AUDIT LEDGER ===================");
         System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n", "Timestamp", "Type", "Amount", "Result Balance", "Status");
         System.out.println("----------------------------------------------------------------");
