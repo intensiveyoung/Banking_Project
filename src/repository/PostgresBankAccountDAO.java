@@ -346,6 +346,30 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
     }
 
     @Override
+    public List<Transaction> getRecentTransactions(String accountNumber, int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException(
+                    "Mini-statement transaction count must be greater than zero."
+            );
+        }
+
+        String sql = """
+                SELECT * FROM transactions
+                WHERE account_number = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """;
+        try (Connection conn = getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, accountNumber);
+            pstmt.setInt(2, limit);
+            return readTransactions(pstmt);
+        } catch (SQLException e) {
+            throw new RuntimeException("Error fetching recent transactions", e);
+        }
+    }
+
+    @Override
     public void deleteAccountAndTransactions(String accountNumber) {
         String deleteTransactionsSql = "DELETE FROM transactions WHERE account_number = ?";
         String deleteAccountSql = "DELETE FROM accounts WHERE account_number = ?";

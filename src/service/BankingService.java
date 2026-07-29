@@ -339,6 +339,16 @@ public class BankingService {
         );
     }
 
+    public List<Transaction> getMiniStatement(int count) {
+        ensureAccountSessionExists();
+        if (count <= 0) {
+            throw new IllegalArgumentException(
+                    "Mini-statement transaction count must be greater than zero."
+            );
+        }
+        return accountDAO.getRecentTransactions(activeAccountNumber, count);
+    }
+
     private void validateHistoryDateRange(LocalDateTime startDate, LocalDateTime endDate) {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime resolvedEndDate = endDate == null ? now : endDate;
