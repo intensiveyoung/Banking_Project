@@ -2,5 +2,7 @@ package domain;
 
 public enum TransactionType {
     DEPOSIT,
-    WITHDRAWAL
+    WITHDRAWAL,
+    TRANSFER,
+    ALL
 }
