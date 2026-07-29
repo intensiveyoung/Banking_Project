@@ -1,29 +1,93 @@
 package service;
 
 import domain.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import repository.PostgresBankAccountDAO;
+
+import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class BankingServiceIntegrationTest {
 
+    private static final Set<String> ALL_CREATED_TEST_ACCOUNT_NUMBERS =
+            ConcurrentHashMap.newKeySet();
+    private final Set<String> createdTestAccountNumbers = new HashSet<>();
     private BankingService service;
+    private PostgresBankAccountDAO cleanupDAO;
 
     @BeforeEach
-
     void setUp() {
         AccountNumberGenerator.reset();
         service = new BankingService();
+        cleanupDAO = new PostgresBankAccountDAO();
+    }
+
+    @AfterEach
+    void tearDownTestAccounts() {
+        RuntimeException cleanupFailure = null;
+        for (String accountNumber : createdTestAccountNumbers) {
+            try {
+                cleanupDAO.deleteAccountAndTransactions(accountNumber);
+            } catch (RuntimeException e) {
+                if (cleanupFailure == null) {
+                    cleanupFailure = new RuntimeException("Integration test data cleanup failed.");
+                }
+                cleanupFailure.addSuppressed(e);
+            }
+        }
+        createdTestAccountNumbers.clear();
+
+        if (cleanupFailure != null) {
+            throw cleanupFailure;
+        }
+    }
+
+    @AfterAll
+    static void verifyTestAccountsWereRemoved() {
+        PostgresBankAccountDAO verificationDAO = new PostgresBankAccountDAO();
+        for (String accountNumber : ALL_CREATED_TEST_ACCOUNT_NUMBERS) {
+            assertNull(
+                    verificationDAO.findAccountByNumber(accountNumber),
+                    "Test account should be deleted: " + accountNumber
+            );
+            assertTrue(
+                    verificationDAO.getTransactionHistory(accountNumber).isEmpty(),
+                    "Test transactions should be deleted: " + accountNumber
+            );
+        }
+    }
+
+    private String openTrackedAccount(BankingService targetService, String ownerName,
+                                      double initialDeposit, Double dailyLimit, String pin,
+                                      String securityQuestion, String securityAnswer) {
+        String accountNumber = targetService.openAccount(
+                ownerName,
+                initialDeposit,
+                dailyLimit,
+                pin,
+                securityQuestion,
+                securityAnswer
+        );
+        createdTestAccountNumbers.add(accountNumber);
+        ALL_CREATED_TEST_ACCOUNT_NUMBERS.add(accountNumber);
+        return accountNumber;
     }
 
     @Test
     @DisplayName("Integration Test: Complete User Banking Journey Flow")
     void testFullUserLifecycle() {
         // 1. Setup & Open Account (Verifying sequential baseline)
-        String accNum = service.openAccount(
+        String accNum = openTrackedAccount(
+                service,
                 "Alice",
                 100.00,
                 50.00,
@@ -89,7 +153,8 @@ class BankingServiceIntegrationTest {
     void testSequentialAccountIncrements() {
         BankingService service2 = new BankingService();
 
-        String firstAcc = service.openAccount(
+        String firstAcc = openTrackedAccount(
+                service,
                 "Bob",
                 10.00,
                 null,
@@ -97,7 +162,8 @@ class BankingServiceIntegrationTest {
                 "What city were you born in?",
                 "Nairobi"
         );
-        String secondAcc = service2.openAccount(
+        String secondAcc = openTrackedAccount(
+                service2,
                 "Charlie",
                 20.00,
                 null,
@@ -115,7 +181,8 @@ class BankingServiceIntegrationTest {
     @Test
     @DisplayName("Integration Test: Profile updates and PIN changes persist")
     void testProfileAndSecurityUpdatesPersist() {
-        String accountNumber = service.openAccount(
+        String accountNumber = openTrackedAccount(
+                service,
                 "Original Name",
                 100.00,
                 null,
@@ -140,6 +207,36 @@ class BankingServiceIntegrationTest {
         service.login(accountNumber, "5678");
         assertEquals(accountNumber, service.getActiveAccount().getAccountNumber());
         assertDoesNotThrow(() -> service.verifySecurityAnswer(accountNumber, "Milo"));
+    }
+
+    @Test
+    @DisplayName("Integration Test: Transaction history duration queries execute against PostgreSQL")
+    void testTransactionHistoryDurationQueries() {
+        openTrackedAccount(
+                service,
+                "History User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        service.deposit(10.00);
+
+        List<Transaction> presetHistory = service.getTransactionHistory(DurationFilter.ONE_WEEK);
+        List<Transaction> customDaysHistory = service.getTransactionHistoryForLastDays(10);
+        LocalDateTime now = LocalDateTime.now();
+        List<Transaction> dateRangeHistory = service.getTransactionHistoryByDateRange(
+                now.minusDays(1),
+                now.plusSeconds(1)
+        );
+
+        assertEquals(2, presetHistory.size());
+        assertEquals(2, customDaysHistory.size());
+        assertEquals(2, dateRangeHistory.size());
+        assertFalse(presetHistory.get(0).getTimestamp().isBefore(
+                presetHistory.get(1).getTimestamp()
+        ));
     }
 
     @Test
