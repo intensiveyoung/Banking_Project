@@ -240,6 +240,58 @@ class BankingServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("Integration Test: Transaction type filters execute against PostgreSQL")
+    void testTransactionTypeFilters() {
+        String accountNumber = openTrackedAccount(
+                service,
+                "Type Filter User",
+                100.00,
+                null,
+                "1234",
+                SecurityQuestion.FIRST_PET.getText(),
+                "Milo"
+        );
+        service.deposit(10.00);
+        service.withdraw(5.00);
+        cleanupDAO.logTransaction(
+                accountNumber,
+                new Transaction(
+                        TransactionType.TRANSFER,
+                        3.00,
+                        LocalDateTime.now(),
+                        service.checkBalance(),
+                        TransactionStatus.SUCCESS
+                )
+        );
+
+        List<Transaction> deposits = service.getTransactionHistory(
+                TransactionType.DEPOSIT,
+                DurationFilter.ALL_TIME
+        );
+        List<Transaction> withdrawals = service.getTransactionHistory(
+                TransactionType.WITHDRAWAL,
+                DurationFilter.ALL_TIME
+        );
+        List<Transaction> transfers = service.getTransactionHistory(
+                TransactionType.TRANSFER,
+                DurationFilter.ALL_TIME
+        );
+
+        assertEquals(2, deposits.size());
+        assertEquals(1, withdrawals.size());
+        assertEquals(1, transfers.size());
+        assertTrue(deposits.stream().allMatch(
+                transaction -> transaction.getType() == TransactionType.DEPOSIT
+        ));
+        assertTrue(withdrawals.stream().allMatch(
+                transaction -> transaction.getType() == TransactionType.WITHDRAWAL
+        ));
+        assertTrue(transfers.stream().allMatch(
+                transaction -> transaction.getType() == TransactionType.TRANSFER
+        ));
+    }
+
+    @Test
     @DisplayName("Integration Test: Operations should fail if no account is active")
     void testStateProtectionWithoutAccount() {
         assertThrows(IllegalStateException.class, () -> service.deposit(50.00));
