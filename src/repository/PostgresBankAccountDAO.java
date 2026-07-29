@@ -252,26 +252,55 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
 
     @Override
     public List<Transaction> getTransactionHistoryFiltered(String accountNumber, DurationFilter filter) {
+        return getTransactionHistoryFiltered(accountNumber, null, filter, null, null);
+    }
+
+    @Override
+    public List<Transaction> getTransactionHistoryFiltered(String accountNumber, TransactionType type,
+                                                           DurationFilter filter,
+                                                           LocalDateTime customStart,
+                                                           LocalDateTime customEnd) {
         Objects.requireNonNull(filter, "Duration filter is required.");
-        if (filter == DurationFilter.ALL_TIME) {
-            String sql = "SELECT * FROM transactions WHERE account_number = ? ORDER BY timestamp DESC";
-            try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setString(1, accountNumber);
-                return readTransactions(pstmt);
-            } catch (SQLException e) {
-                throw new RuntimeException("Error fetching filtered transaction history", e);
-            }
+
+        LocalDateTime startDate = customStart;
+        LocalDateTime endDate = customEnd;
+        if (startDate == null && endDate == null && filter != DurationFilter.ALL_TIME) {
+            startDate = LocalDateTime.now(clock).minusDays(filter.getDays());
+        } else if (startDate != null && endDate == null) {
+            endDate = LocalDateTime.now(clock);
+        }
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new IllegalArgumentException("Start date cannot be after end date.");
         }
 
-        String sql = """
-                SELECT * FROM transactions
-                WHERE account_number = ? AND timestamp >= ?
-                ORDER BY timestamp DESC
-                """;
-        LocalDateTime cutoff = LocalDateTime.now(clock).minusDays(filter.getDays());
-        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, accountNumber);
-            pstmt.setTimestamp(2, Timestamp.valueOf(cutoff));
+        StringBuilder sql = new StringBuilder(
+                "SELECT * FROM transactions WHERE account_number = ?"
+        );
+        boolean filterByType = type != null && type != TransactionType.ALL;
+        if (filterByType) {
+            sql.append(" AND type = ?");
+        }
+        if (startDate != null) {
+            sql.append(" AND timestamp >= ?");
+        }
+        if (endDate != null) {
+            sql.append(" AND timestamp <= ?");
+        }
+        sql.append(" ORDER BY timestamp DESC");
+
+        try (Connection conn = getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql.toString())) {
+            int parameterIndex = 1;
+            pstmt.setString(parameterIndex++, accountNumber);
+            if (filterByType) {
+                pstmt.setString(parameterIndex++, type.name());
+            }
+            if (startDate != null) {
+                pstmt.setTimestamp(parameterIndex++, Timestamp.valueOf(startDate));
+            }
+            if (endDate != null) {
+                pstmt.setTimestamp(parameterIndex, Timestamp.valueOf(endDate));
+            }
             return readTransactions(pstmt);
         } catch (SQLException e) {
             throw new RuntimeException("Error fetching filtered transaction history", e);
