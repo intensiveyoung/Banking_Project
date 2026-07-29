@@ -2,25 +2,39 @@ package service;
 
 import domain.BankAccount;
 import domain.AccountNumberGenerator;
+import domain.DurationFilter;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
 import repository.BankAccountDAO;
 import repository.PostgresBankAccountDAO;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 
 public class BankingService {
     private static final String SECURITY_HASH_SEPARATOR = ":";
     private final BankAccountDAO accountDAO;
+    private final Clock clock;
     private String activeAccountNumber; // Keeps track of which user account number session is logged in
 
     public BankingService() {
-        this(new PostgresBankAccountDAO());
+        this(Clock.systemDefaultZone());
+    }
+
+    public BankingService(Clock clock) {
+        this(new PostgresBankAccountDAO(clock), clock);
     }
 
     public BankingService(BankAccountDAO accountDAO) {
+        this(accountDAO, Clock.systemDefaultZone());
+    }
+
+    public BankingService(BankAccountDAO accountDAO, Clock clock) {
         this.accountDAO = Objects.requireNonNull(accountDAO, "Account DAO is required.");
+        this.clock = Objects.requireNonNull(clock, "Clock is required.");
 
         // DYNAMIC COUNTER INITIALIZATION:
         // Query the database for the highest active account index
@@ -37,7 +51,7 @@ public class BankingService {
         validateSecuritySetup(pin, securityQuestion, securityAnswer);
 
         String accNum = AccountNumberGenerator.getNextAccountNumber();
-        BankAccount account = new BankAccount(accNum, ownerName, initialDeposit, dailyLimit);
+        BankAccount account = new BankAccount(accNum, ownerName, initialDeposit, dailyLimit, clock);
         String salt = SecurityUtil.generateSalt();
         account.setPinSalt(salt);
         account.setPinHash(SecurityUtil.hashPin(pin, salt));
@@ -265,6 +279,43 @@ public class BankingService {
 
     public List<Transaction> getHistory() {
         return accountDAO.getTransactionHistory(activeAccountNumber);
+    }
+
+    public List<Transaction> getTransactionHistory(DurationFilter filter) {
+        ensureAccountSessionExists();
+        return accountDAO.getTransactionHistoryFiltered(activeAccountNumber, filter);
+    }
+
+    public List<Transaction> getTransactionHistoryForLastDays(int days) {
+        ensureAccountSessionExists();
+        if (days <= 0) {
+            throw new IllegalArgumentException("Number of days must be a positive integer.");
+        }
+
+        LocalDateTime endDate = LocalDateTime.now(clock);
+        return accountDAO.getTransactionHistoryByDateRange(
+                activeAccountNumber,
+                endDate.minusDays(days),
+                endDate
+        );
+    }
+
+    public List<Transaction> getTransactionHistoryByDateRange(LocalDateTime startDate,
+                                                              LocalDateTime endDate) {
+        ensureAccountSessionExists();
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime resolvedEndDate = endDate == null ? now : endDate;
+        if (startDate != null && startDate.isAfter(now)) {
+            throw new IllegalArgumentException("Start date cannot be in the future.");
+        }
+        if (startDate != null && startDate.isAfter(resolvedEndDate)) {
+            throw new IllegalArgumentException("Start date cannot be after end date.");
+        }
+        return accountDAO.getTransactionHistoryByDateRange(
+                activeAccountNumber,
+                startDate,
+                resolvedEndDate
+        );
     }
 
     public BankAccount getActiveAccount() {
