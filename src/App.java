@@ -98,7 +98,7 @@ public class App {
         System.out.println("---------------------------------");
         System.out.println("1. Deposit Funds");
         System.out.println("2. Withdraw Funds");
-        System.out.println("3. Check Account Balance");
+        System.out.println("3. Transfer Funds");
         System.out.println("4. View Transaction Ledger History");
         System.out.println("5. Profile & Security Settings");
         System.out.println("6. Logout");
@@ -109,7 +109,7 @@ public class App {
         switch (choice) {
             case "1" -> handleDeposit();
             case "2" -> handleWithdrawal();
-            case "3" -> handleCheckBalance();
+            case "3" -> handleTransfer();
             case "4" -> handleTransactionHistory();
             case "5" -> handleProfileSettings();
             case "6" -> handleLogout();
@@ -347,6 +347,31 @@ public class App {
         double amount = readDoubleInput();
         bankingService.withdraw(amount);
         System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
+    }
+
+    private void handleTransfer() {
+        System.out.print("Enter target account number: ");
+        String targetAccountNumber = scanner.nextLine().trim();
+        System.out.print("Enter transfer amount: $");
+        double amount = readDoubleInput();
+        System.out.printf("Send %s to account %s? 1. Proceed, 2. Cancel: ",
+                MoneyUtil.format(amount), targetAccountNumber);
+        String confirmation = getValidMenuChoice("");
+        if (!"1".equals(confirmation)) {
+            System.out.println("\nℹ️ Transfer cancelled.");
+            return;
+        }
+
+        System.out.print("Enter current 4-digit PIN: ");
+        String pin = scanner.nextLine().trim();
+        try {
+            bankingService.transfer(targetAccountNumber, amount, pin);
+            System.out.printf("\n✅ Successfully transferred %s to account %s. New Balance: %s%n",
+                    MoneyUtil.format(amount), targetAccountNumber,
+                    MoneyUtil.format(bankingService.checkBalance()));
+        } catch (RuntimeException e) {
+            System.out.println("\n❌ " + e.getMessage());
+        }
     }
 
     private void handleCheckBalance() {
