@@ -107,6 +107,27 @@ public class BankAccount {
         ));
     }
 
+    public synchronized void transferOut(double amount) {
+        validateTransferAmount(amount);
+        if (amount > balance) {
+            throw new InsufficientFundsException("Insufficient funds for this transfer.");
+        }
+        if (dailyWithdrawalLimit != null
+                && getOutgoingAmountForDate(LocalDate.now(clock)) + amount > dailyWithdrawalLimit) {
+            throw new DailyLimitExceededException("Daily withdrawal limit exceeded.");
+        }
+        balance -= amount;
+        transactionHistory.add(new Transaction(TransactionType.TRANSFER_OUT, amount,
+                LocalDateTime.now(clock), balance, TransactionStatus.SUCCESS));
+    }
+
+    public synchronized void transferIn(double amount) {
+        validateTransferAmount(amount);
+        balance += amount;
+        transactionHistory.add(new Transaction(TransactionType.TRANSFER_IN, amount,
+                LocalDateTime.now(clock), balance, TransactionStatus.SUCCESS));
+    }
+
     private double getWithdrawnAmountForDate(LocalDate date) {
         return transactionHistory.stream()
                 .filter(t -> t.getType() == TransactionType.WITHDRAWAL)
@@ -114,6 +135,22 @@ public class BankAccount {
                 .filter(t -> t.getTimestamp().toLocalDate().isEqual(date))
                 .mapToDouble(Transaction::getAmount)
                 .sum();
+    }
+
+    private double getOutgoingAmountForDate(LocalDate date) {
+        return transactionHistory.stream()
+                .filter(t -> t.getType() == TransactionType.WITHDRAWAL
+                        || t.getType() == TransactionType.TRANSFER_OUT)
+                .filter(t -> t.getStatus() == TransactionStatus.SUCCESS)
+                .filter(t -> t.getTimestamp().toLocalDate().isEqual(date))
+                .mapToDouble(Transaction::getAmount)
+                .sum();
+    }
+
+    private void validateTransferAmount(double amount) {
+        if (!Double.isFinite(amount) || amount <= 0) {
+            throw new IllegalArgumentException("Transfer amount must be greater than $0.00.");
+        }
     }
 
     public String getAccountNumber() { return accountNumber; }

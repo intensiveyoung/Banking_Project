@@ -1,6 +1,7 @@
 import domain.AccountNumberGenerator;
 import domain.BankAccount;
 import domain.DurationFilter;
+import domain.InsufficientFundsException;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
@@ -912,6 +913,130 @@ class AppTest {
         return createTransaction(TransactionType.DEPOSIT, amount, timestamp);
     }
 
+    @Test
+    @DisplayName("Transfer: successful transfer updates both balances and ledger entries")
+    void transferFundsSuccessfully() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String sourceAccountNumber = bankingService.getActiveAccount().getAccountNumber();
+        String targetAccountNumber = bankingService.openAccount(
+                "Transfer Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login(sourceAccountNumber, "1234");
+
+        bankingService.transfer(targetAccountNumber, 25.00, "1234");
+
+        assertEquals(75.00, accountDAO.findAccountByNumber(sourceAccountNumber).getBalance());
+        assertEquals(75.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
+        assertEquals(TransactionType.TRANSFER_OUT,
+                accountDAO.getTransactionHistory(sourceAccountNumber).get(1).getType());
+        assertEquals(TransactionType.TRANSFER_IN,
+                accountDAO.getTransactionHistory(targetAccountNumber).get(1).getType());
+    }
+
+    @Test
+    @DisplayName("UI Test: transfer confirmation and correct PIN complete the transfer")
+    void transferConfirmationWithCorrectPinCompletesTransfer() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String targetAccountNumber = bankingService.openAccount(
+                "Transfer Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login("1001", "1234");
+        provideMockInput("3\n" + targetAccountNumber + "\n25\n1\n1234\n6\n3\n");
+
+        runApp(bankingService);
+
+        assertEquals(75.00, accountDAO.findAccountByNumber("1001").getBalance());
+        assertTrue(getConsoleOutput().contains(
+                "Successfully transferred $25.00 to account " + targetAccountNumber
+        ));
+    }
+
+    @Test
+    @DisplayName("UI Test: transfer cancellation leaves balances unchanged")
+    void transferCancellationLeavesBalancesUnchanged() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String targetAccountNumber = bankingService.openAccount(
+                "Transfer Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login("1001", "1234");
+        provideMockInput("3\n" + targetAccountNumber + "\n25\n2\n6\n3\n");
+
+        runApp(bankingService);
+
+        assertEquals(100.00, accountDAO.findAccountByNumber("1001").getBalance());
+        assertEquals(50.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
+        assertTrue(getConsoleOutput().contains("Transfer cancelled."));
+    }
+
+    @Test
+    @DisplayName("UI Test: incorrect transfer PIN shows a clear error")
+    void transferRejectsIncorrectPin() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String targetAccountNumber = bankingService.openAccount(
+                "Transfer Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login("1001", "1234");
+        provideMockInput("3\n" + targetAccountNumber + "\n25\n1\n9999\n6\n3\n");
+
+        runApp(bankingService);
+
+        assertEquals(100.00, accountDAO.findAccountByNumber("1001").getBalance());
+        assertTrue(getConsoleOutput().contains("❌ Incorrect PIN."));
+    }
+
+    @Test
+    @DisplayName("Transfer: insufficient funds leave both accounts unchanged")
+    void transferRejectsInsufficientBalance() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String sourceAccountNumber = bankingService.getActiveAccount().getAccountNumber();
+        String targetAccountNumber = bankingService.openAccount(
+                "Transfer Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login(sourceAccountNumber, "1234");
+
+        InsufficientFundsException error = assertThrows(InsufficientFundsException.class,
+                () -> bankingService.transfer(targetAccountNumber, 101.00, "1234"));
+
+        assertEquals("Insufficient funds for this transfer.", error.getMessage());
+        assertEquals(100.00, accountDAO.findAccountByNumber(sourceAccountNumber).getBalance());
+        assertEquals(50.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
+    }
+
+    @Test
+    @DisplayName("Transfer: self-transfer is rejected")
+    void transferRejectsSelfTransfer() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String sourceAccountNumber = bankingService.getActiveAccount().getAccountNumber();
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> bankingService.transfer(sourceAccountNumber, 10.00, "1234"));
+
+        assertEquals("You cannot transfer funds to the same account.", error.getMessage());
+    }
+
+    @Test
+    @DisplayName("Transfer: an unknown target account is rejected")
+    void transferRejectsUnknownTarget() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> bankingService.transfer("9999", 10.00, "1234"));
+
+        assertEquals("Target account number not found.", error.getMessage());
+    }
+
     private Transaction createTransaction(TransactionType type, double amount,
                                           LocalDateTime timestamp) {
         return new Transaction(
@@ -955,6 +1080,17 @@ class AppTest {
             if (!accounts.containsKey(accountNumber)) {
                 throw new IllegalArgumentException("Account number not found.");
             }
+        }
+
+        @Override
+        public void transferFunds(String sourceAcc, String targetAcc, double amount) {
+            BankAccount source = accounts.get(sourceAcc);
+            BankAccount target = accounts.get(targetAcc);
+            if (source == null || target == null) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+            source.transferOut(amount);
+            target.transferIn(amount);
         }
 
         @Override
@@ -1030,7 +1166,10 @@ class AppTest {
             return account.getTransactionHistory().stream()
                     .filter(transaction -> type == null
                             || type == TransactionType.ALL
-                            || transaction.getType() == type)
+                            || transaction.getType() == type
+                            || (type == TransactionType.TRANSFER
+                            && (transaction.getType() == TransactionType.TRANSFER_OUT
+                            || transaction.getType() == TransactionType.TRANSFER_IN)))
                     .filter(transaction -> resolvedStartDate == null
                             || !transaction.getTimestamp().isBefore(resolvedStartDate))
                     .filter(transaction -> resolvedEndDate == null

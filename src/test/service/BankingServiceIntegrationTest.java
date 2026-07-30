@@ -149,6 +149,28 @@ class BankingServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("Integration Test: PostgreSQL transfer rolls back when the transaction fails")
+    void transferRollbackLeavesPostgresAccountsUnchanged() {
+        String sourceAccountNumber = openTrackedAccount(
+                service, "Rollback Source", 100.00, null, "1234",
+                SecurityQuestion.FIRST_PET.getText(), "Milo"
+        );
+        String targetAccountNumber = openTrackedAccount(
+                service, "Rollback Target", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+
+        assertThrows(RuntimeException.class,
+                () -> cleanupDAO.transferFunds(sourceAccountNumber, targetAccountNumber,
+                        Double.POSITIVE_INFINITY));
+
+        assertEquals(100.00, cleanupDAO.findAccountByNumber(sourceAccountNumber).getBalance());
+        assertEquals(50.00, cleanupDAO.findAccountByNumber(targetAccountNumber).getBalance());
+        assertEquals(1, cleanupDAO.getTransactionHistory(sourceAccountNumber).size());
+        assertEquals(1, cleanupDAO.getTransactionHistory(targetAccountNumber).size());
+    }
+
+    @Test
     @DisplayName("Integration Test: Verify Account Numbers increment sequentially across users")
     void testSequentialAccountIncrements() {
         BankingService service2 = new BankingService();

@@ -177,6 +177,81 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
     }
 
     @Override
+    public void transferFunds(String sourceAcc, String targetAcc, double amount) {
+        String lockAccountsSql = """
+                SELECT account_number, balance FROM accounts
+                WHERE account_number IN (?, ?)
+                ORDER BY account_number FOR UPDATE
+                """;
+        String updateBalanceSql = "UPDATE accounts SET balance = ? WHERE account_number = ?";
+        String insertTransactionSql = """
+                INSERT INTO transactions (account_number, type, amount, timestamp, resulting_balance, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """;
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement lockAccounts = conn.prepareStatement(lockAccountsSql);
+                 PreparedStatement updateBalance = conn.prepareStatement(updateBalanceSql);
+                 PreparedStatement insertTransaction = conn.prepareStatement(insertTransactionSql)) {
+                lockAccounts.setString(1, sourceAcc);
+                lockAccounts.setString(2, targetAcc);
+                double sourceBalance = Double.NaN;
+                double targetBalance = Double.NaN;
+                try (ResultSet resultSet = lockAccounts.executeQuery()) {
+                    while (resultSet.next()) {
+                        if (sourceAcc.equals(resultSet.getString("account_number"))) {
+                            sourceBalance = resultSet.getDouble("balance");
+                        } else {
+                            targetBalance = resultSet.getDouble("balance");
+                        }
+                    }
+                }
+                if (!Double.isFinite(sourceBalance) || !Double.isFinite(targetBalance)) {
+                    throw new SQLException("Both accounts must exist to complete a transfer.");
+                }
+                if (amount > sourceBalance) {
+                    throw new SQLException("Insufficient funds for this transfer.");
+                }
+
+                double newSourceBalance = sourceBalance - amount;
+                double newTargetBalance = targetBalance + amount;
+                updateBalance.setDouble(1, newSourceBalance);
+                updateBalance.setString(2, sourceAcc);
+                updateBalance.executeUpdate();
+                updateBalance.setDouble(1, newTargetBalance);
+                updateBalance.setString(2, targetAcc);
+                updateBalance.executeUpdate();
+
+                LocalDateTime timestamp = LocalDateTime.now(clock);
+                insertTransferTransaction(insertTransaction, sourceAcc, TransactionType.TRANSFER_OUT,
+                        amount, timestamp, newSourceBalance);
+                insertTransferTransaction(insertTransaction, targetAcc, TransactionType.TRANSFER_IN,
+                        amount, timestamp, newTargetBalance);
+                conn.commit();
+            } catch (SQLException e) {
+                rollback(conn, e);
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error transferring funds", e);
+        }
+    }
+
+    private void insertTransferTransaction(PreparedStatement statement, String accountNumber,
+                                           TransactionType type, double amount,
+                                           LocalDateTime timestamp, double resultingBalance)
+            throws SQLException {
+        statement.setString(1, accountNumber);
+        statement.setString(2, type.name());
+        statement.setDouble(3, amount);
+        statement.setTimestamp(4, Timestamp.valueOf(timestamp));
+        statement.setDouble(5, resultingBalance);
+        statement.setString(6, TransactionStatus.SUCCESS.name());
+        statement.executeUpdate();
+    }
+
+    @Override
     public void updateAccountProfile(String accountNumber, String newName, Double newLimit) {
         String sql = "UPDATE accounts SET owner_name = ?, daily_limit = ? WHERE account_number = ?";
         try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -278,7 +353,9 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
         );
         boolean filterByType = type != null && type != TransactionType.ALL;
         if (filterByType) {
-            sql.append(" AND type = ?");
+            sql.append(type == TransactionType.TRANSFER
+                    ? " AND type IN (?, ?, ?)"
+                    : " AND type = ?");
         }
         if (startDate != null) {
             sql.append(" AND timestamp >= ?");
@@ -294,6 +371,10 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
             pstmt.setString(parameterIndex++, accountNumber);
             if (filterByType) {
                 pstmt.setString(parameterIndex++, type.name());
+                if (type == TransactionType.TRANSFER) {
+                    pstmt.setString(parameterIndex++, TransactionType.TRANSFER_OUT.name());
+                    pstmt.setString(parameterIndex++, TransactionType.TRANSFER_IN.name());
+                }
             }
             if (startDate != null) {
                 pstmt.setTimestamp(parameterIndex++, Timestamp.valueOf(startDate));
