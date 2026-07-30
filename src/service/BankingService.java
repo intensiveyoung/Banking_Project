@@ -3,6 +3,8 @@ package service;
 import domain.BankAccount;
 import domain.AccountNumberGenerator;
 import domain.DurationFilter;
+import domain.DailyLimitExceededException;
+import domain.InsufficientFundsException;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
@@ -11,6 +13,7 @@ import repository.BankAccountDAO;
 import repository.PostgresBankAccountDAO;
 
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
@@ -270,6 +273,52 @@ public class BankingService {
         } finally {
             // Log transaction regardless of SUCCESS or FAILED state outcome per rules
             accountDAO.logTransaction(account.getAccountNumber(), account.getTransactionHistory().get(account.getTransactionHistory().size() - 1));
+        }
+    }
+
+    public void transfer(String targetAccNum, double amount, String pin) {
+        ensureAccountSessionExists();
+        if (!Double.isFinite(amount) || amount <= 0) {
+            throw new IllegalArgumentException("Transfer amount must be greater than $0.00.");
+        }
+        if (targetAccNum == null || targetAccNum.trim().isEmpty()) {
+            throw new IllegalArgumentException("Target account number is required.");
+        }
+
+        BankAccount source = getActiveAccount();
+        if (pin == null || source.getPinHash() == null || source.getPinSalt() == null
+                || !SecurityUtil.hashPin(pin, source.getPinSalt()).equals(source.getPinHash())) {
+            throw new IllegalArgumentException("Incorrect PIN.");
+        }
+        String targetAccountNumber = targetAccNum.trim();
+        if (source.getAccountNumber().equals(targetAccountNumber)) {
+            throw new IllegalArgumentException("You cannot transfer funds to the same account.");
+        }
+        if (accountDAO.findAccountByNumber(targetAccountNumber) == null) {
+            throw new IllegalArgumentException("Target account number not found.");
+        }
+        if (amount > source.getBalance()) {
+            throw new InsufficientFundsException("Insufficient funds for this transfer.");
+        }
+        validateTransferDailyLimit(source, amount);
+        accountDAO.transferFunds(source.getAccountNumber(), targetAccountNumber, amount);
+    }
+
+    private void validateTransferDailyLimit(BankAccount source, double amount) {
+        Double dailyLimit = source.getDailyWithdrawalLimit();
+        if (dailyLimit == null) {
+            return;
+        }
+        LocalDate today = LocalDate.now(clock);
+        double outgoingToday = accountDAO.getTransactionHistory(source.getAccountNumber()).stream()
+                .filter(transaction -> transaction.getStatus() == domain.TransactionStatus.SUCCESS)
+                .filter(transaction -> transaction.getType() == TransactionType.WITHDRAWAL
+                        || transaction.getType() == TransactionType.TRANSFER_OUT)
+                .filter(transaction -> transaction.getTimestamp().toLocalDate().isEqual(today))
+                .mapToDouble(Transaction::getAmount)
+                .sum();
+        if (outgoingToday + amount > dailyLimit) {
+            throw new DailyLimitExceededException("Daily withdrawal limit exceeded. Funds not transferred.");
         }
     }
 
