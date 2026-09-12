@@ -107,6 +107,35 @@ public class BankAccount {
         ));
     }
 
+    public synchronized void withdrawWithFee(double amount, double fee) {
+        double totalDebit = amount + fee;
+        if (amount <= MINIMUM_WITHDRAWAL) {
+            throw new IllegalArgumentException("Withdrawal amount must be greater than " + MoneyUtil.format(MINIMUM_WITHDRAWAL));
+        }
+        if (totalDebit > balance) {
+            throw new IllegalArgumentException("Insufficient funds including service fee.");
+        }
+        if (dailyWithdrawalLimit != null
+                && getOutgoingAmountForDate(LocalDate.now(clock)) + totalDebit > dailyWithdrawalLimit) {
+            throw new DailyLimitExceededException("Daily withdrawal limit exceeded.");
+        }
+
+        balance -= amount;
+        transactionHistory.add(new Transaction(
+                TransactionType.WITHDRAWAL, amount, LocalDateTime.now(clock), balance,
+                TransactionStatus.SUCCESS
+        ));
+        chargeServiceFee(fee);
+    }
+
+    public synchronized void chargeServiceFee(double fee) {
+        balance -= fee;
+        transactionHistory.add(new Transaction(
+                TransactionType.SERVICE_FEE, fee, LocalDateTime.now(clock), balance,
+                TransactionStatus.SUCCESS
+        ));
+    }
+
     public synchronized void transferOut(double amount) {
         validateTransferAmount(amount);
         if (amount > balance) {
@@ -140,7 +169,8 @@ public class BankAccount {
     private double getOutgoingAmountForDate(LocalDate date) {
         return transactionHistory.stream()
                 .filter(t -> t.getType() == TransactionType.WITHDRAWAL
-                        || t.getType() == TransactionType.TRANSFER_OUT)
+                        || t.getType() == TransactionType.TRANSFER_OUT
+                        || t.getType() == TransactionType.SERVICE_FEE)
                 .filter(t -> t.getStatus() == TransactionStatus.SUCCESS)
                 .filter(t -> t.getTimestamp().toLocalDate().isEqual(date))
                 .mapToDouble(Transaction::getAmount)
