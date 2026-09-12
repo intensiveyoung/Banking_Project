@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import repository.BankAccountDAO;
 import service.BankingService;
+import util.ConsoleColor;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -101,6 +102,16 @@ class AppTest {
     }
 
     @Test
+    @DisplayName("UI Test: Console color helpers wrap messages with ANSI reset codes")
+    void consoleColorHelpersWrapMessagesWithAnsiCodes() {
+        assertEquals("\u001B[31mError\u001B[0m", ConsoleColor.red("Error"));
+        assertEquals("\u001B[32mSuccess\u001B[0m", ConsoleColor.green("Success"));
+        assertEquals("\u001B[36mHeader\u001B[0m", ConsoleColor.cyan("Header"));
+        assertEquals("\u001B[33mNotice\u001B[0m", ConsoleColor.yellow("Notice"));
+        assertEquals("\u001B[1m", ConsoleColor.BOLD);
+    }
+
+    @Test
     @DisplayName("UI Test: Unauthenticated menu handles exit cleanly")
     void testUnauthenticatedMenuExit() {
         // Option 3 is exit on unauthenticated gateway menu shell
@@ -109,8 +120,18 @@ class AppTest {
         runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("=== WELCOME TO CORE BANKING SYSTEM ==="));
-        assertTrue(output.contains("Thank you for banking with us. Goodbye!"));
+        assertTrue(output.contains(ConsoleColor.cyan(
+                "=== WELCOME TO CORE BANKING SYSTEM ==="
+        )));
+        assertTrue(output.contains(ConsoleColor.yellow(
+                "Thank you for banking with us. Goodbye!"
+        )));
+        assertFalse(output.contains("❌"));
+        assertFalse(output.contains("✅"));
+        assertFalse(output.contains("⚠"));
+        assertFalse(output.contains("ℹ"));
+        assertFalse(output.contains("👤"));
+        assertFalse(output.contains("💰"));
     }
 
     @Test
@@ -122,7 +143,9 @@ class AppTest {
         runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("Invalid choice! Please select an option between 1 and 3."));
+        assertTrue(output.contains(ConsoleColor.red(
+                "Invalid choice! Please select an option between 1 and 3."
+        )));
     }
 
     @Test
@@ -138,7 +161,9 @@ class AppTest {
         runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("ERROR: Invalid numeric input format entered."));
+        assertTrue(output.contains(ConsoleColor.red(
+                "ERROR: Invalid numeric input format entered."
+        )));
     }
 
     @Test
@@ -205,8 +230,21 @@ class AppTest {
         runApp();
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("Login successful! Welcome back, Secure User!"));
-        assertTrue(output.contains("SESSION: Secure User (1001)"));
+        assertTrue(output.contains(ConsoleColor.green(
+                "Login successful! Welcome back, Secure User!"
+        )));
+        assertTrue(output.contains(ConsoleColor.cyan("SESSION: Secure User (1001)")));
+        int depositOption = output.indexOf("1. Deposit Funds");
+        int withdrawalOption = output.indexOf("2. Withdraw Funds", depositOption);
+        int transferOption = output.indexOf("3. Transfer Funds", withdrawalOption);
+        int ledgerOption = output.indexOf("4. View Transaction Ledger History", transferOption);
+        int settingsOption = output.indexOf("5. Profile & Security Settings", ledgerOption);
+        int logoutOption = output.indexOf("6. Logout", settingsOption);
+        assertTrue(depositOption < withdrawalOption
+                && withdrawalOption < transferOption
+                && transferOption < ledgerOption
+                && ledgerOption < settingsOption
+                && settingsOption < logoutOption);
     }
 
     @Test
@@ -338,7 +376,9 @@ class AppTest {
                 "Updated Profile User",
                 accountDAO.findAccountByNumber("1001").getOwnerName()
         );
-        assertTrue(getConsoleOutput().contains("Display name updated successfully!"));
+        assertTrue(getConsoleOutput().contains(ConsoleColor.green(
+                "Display name updated successfully!"
+        )));
     }
 
     @Test
@@ -359,9 +399,9 @@ class AppTest {
 
         assertEquals(0, accountDAO.getProfileUpdateCount());
         assertTrue(
-                getConsoleOutput().contains(
+                getConsoleOutput().contains(ConsoleColor.yellow(
                         "Display name is already set to 'Profile User'. No changes were made."
-                )
+                ))
         );
     }
 
@@ -665,7 +705,9 @@ class AppTest {
         runApp(bankingService, fixedClock);
 
         String output = getConsoleOutput();
-        assertTrue(output.contains("=== MINI-STATEMENT (LAST 5 TRANSACTIONS) ==="));
+        assertTrue(output.contains(ConsoleColor.cyan(
+                "=== MINI-STATEMENT (LAST 5 TRANSACTIONS) ==="
+        )));
         assertTrue(output.contains("$212.00"));
         assertTrue(output.contains("$208.00"));
         assertFalse(output.contains("$207.00"));
@@ -1179,7 +1221,8 @@ class AppTest {
         runApp(bankingService);
 
         assertEquals(100.00, accountDAO.findAccountByNumber("1001").getBalance());
-        assertTrue(getConsoleOutput().contains("❌ Incorrect PIN."));
+        assertTrue(getConsoleOutput().contains(ConsoleColor.red("Incorrect PIN.")));
+        assertFalse(getConsoleOutput().contains("❌"));
     }
 
     @Test
