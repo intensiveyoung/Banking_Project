@@ -327,7 +327,7 @@ class AppTest {
                 5
                 1
                 Updated Profile User
-                4
+                5
                 6
                 3
                 """);
@@ -350,7 +350,7 @@ class AppTest {
                 5
                 1
                 Profile User
-                4
+                5
                 6
                 3
                 """);
@@ -374,7 +374,7 @@ class AppTest {
                 5
                 2
                 75.50
-                4
+                5
                 6
                 3
                 """);
@@ -397,7 +397,7 @@ class AppTest {
                 5
                 2
                 400
-                4
+                5
                 6
                 3
                 """);
@@ -421,7 +421,7 @@ class AppTest {
                 5
                 2
 
-                4
+                5
                 6
                 3
                 """);
@@ -442,7 +442,7 @@ class AppTest {
                 3
                 1234
                 5678
-                4
+                5
                 6
                 2
                 1001
@@ -959,6 +959,131 @@ class AppTest {
     }
 
     @Test
+    @DisplayName("Overdraft: correct PIN enables protection through profile settings")
+    void overdraftPinOptInUpdatesStatus() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("5\n4\n1234\n5\n6\n3\n");
+
+        runApp(bankingService);
+
+        assertTrue(accountDAO.findAccountByNumber("1001").isOverdraftEnabled());
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Overdraft Protection Disclosure:"));
+        assertTrue(output.contains("Overdraft Protection is now Enabled."));
+    }
+
+    @Test
+    @DisplayName("Overdraft: incorrect PIN cannot enable protection")
+    void overdraftOptInRequiresCorrectPin() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.toggleOverdraft(true, "9999")
+        );
+
+        assertEquals("Incorrect PIN.", error.getMessage());
+        assertFalse(accountDAO.findAccountByNumber("1001").isOverdraftEnabled());
+    }
+
+    @Test
+    @DisplayName("Overdraft: a negative account cannot opt in")
+    void negativeBalanceCannotEnableOverdraft() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        bankingService.toggleOverdraft(true, "1234");
+        bankingService.withdraw(100.00, "1234");
+        bankingService.toggleOverdraft(false, "1234");
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                () -> bankingService.toggleOverdraft(true, "1234")
+        );
+
+        assertEquals(
+                "Cannot enable overdraft while account has a negative balance.",
+                error.getMessage()
+        );
+    }
+
+    @Test
+    @DisplayName("Overdraft: withdrawal executes to a negative balance and assesses fee")
+    void overdraftWithdrawalWithinLimitAssessesFee() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        bankingService.toggleOverdraft(true, "1234");
+
+        bankingService.withdraw(120.00, "1234");
+
+        assertEquals(-56.50, bankingService.checkBalance());
+        assertTrue(bankingService.getHistory().stream().anyMatch(transaction ->
+                transaction.getType() == TransactionType.SERVICE_FEE
+                        && Double.compare(transaction.getAmount(), 35.00) == 0
+        ));
+    }
+
+    @Test
+    @DisplayName("Overdraft: withdrawal exceeding the credit limit is rejected")
+    void overdraftWithdrawalExceedingLimitIsRejected() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        bankingService.toggleOverdraft(true, "1234");
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.withdraw(600.00, "1234")
+        );
+
+        assertEquals("Insufficient funds including service fee.", error.getMessage());
+        assertEquals(100.00, bankingService.checkBalance());
+    }
+
+    @Test
+    @DisplayName("Overdraft: transfer executes to a negative balance and assesses fee")
+    void overdraftTransferWithinLimitAssessesFee() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String targetAccountNumber = bankingService.openAccount(
+                "Overdraft Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login("1001", "1234");
+        bankingService.toggleOverdraft(true, "1234");
+
+        bankingService.transfer(targetAccountNumber, 120.00, "1234");
+
+        assertEquals(-56.20, accountDAO.findAccountByNumber("1001").getBalance());
+        assertEquals(170.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
+        assertTrue(accountDAO.getTransactionHistory("1001").stream().anyMatch(transaction ->
+                transaction.getType() == TransactionType.SERVICE_FEE
+                        && Double.compare(transaction.getAmount(), 35.00) == 0
+        ));
+    }
+
+    @Test
+    @DisplayName("Overdraft: transfer exceeding the credit limit is rejected atomically")
+    void overdraftTransferExceedingLimitIsRejected() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        String targetAccountNumber = bankingService.openAccount(
+                "Overdraft Recipient", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+        bankingService.login("1001", "1234");
+        bankingService.toggleOverdraft(true, "1234");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.transfer(targetAccountNumber, 600.00, "1234")
+        );
+
+        assertEquals(100.00, accountDAO.findAccountByNumber("1001").getBalance());
+        assertEquals(50.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
+    }
+
+    @Test
     @DisplayName("UI Test: withdrawal confirmation shows the complete fee breakdown")
     void withdrawalConfirmationShowsFeeBreakdown() {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
@@ -1160,8 +1285,13 @@ class AppTest {
 
         @Override
         public void transferFunds(String sourceAcc, String targetAcc, double amount, double fee) {
+            BankAccount source = accounts.get(sourceAcc);
+            double startingBalance = source.getBalance();
             transferFunds(sourceAcc, targetAcc, amount);
-            accounts.get(sourceAcc).chargeServiceFee(fee);
+            source.chargeServiceFee(fee);
+            if (startingBalance - amount - fee < 0.00) {
+                source.chargeServiceFee(BankAccount.OVERDRAFT_FEE);
+            }
         }
 
         @Override
@@ -1173,6 +1303,15 @@ class AppTest {
             account.setOwnerName(newName);
             account.setDailyWithdrawalLimit(newLimit);
             profileUpdateCount++;
+        }
+
+        @Override
+        public void updateOverdraft(String accountNumber, boolean overdraftEnabled) {
+            BankAccount account = accounts.get(accountNumber);
+            if (account == null) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+            account.setOverdraftEnabled(overdraftEnabled);
         }
 
         @Override

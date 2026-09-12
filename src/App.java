@@ -261,17 +261,19 @@ public class App {
             System.out.println("1. Update Display Name");
             System.out.println("2. Adjust Daily Withdrawal Limit");
             System.out.println("3. Change Security PIN");
-            System.out.println("4. Back");
+            System.out.println("4. Toggle Overdraft Protection");
+            System.out.println("5. Back");
             System.out.println("=================================================");
 
-            String choice = getValidMenuChoice("Select an option (1-4): ");
+            String choice = getValidMenuChoice("Select an option (1-5): ");
             switch (choice) {
                 case "1" -> handleOwnerNameUpdate();
                 case "2" -> handleDailyLimitUpdate();
                 case "3" -> handlePinChange();
-                case "4" -> settingsOpen = false;
+                case "4" -> handleOverdraftToggle();
+                case "5" -> settingsOpen = false;
                 default -> System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 4."
+                        "\n❌ Invalid choice! Please select an option between 1 and 5."
                 );
             }
         }
@@ -328,6 +330,29 @@ public class App {
 
         bankingService.changePin(currentPin, newPin);
         System.out.println("\n✅ Security PIN changed successfully!");
+    }
+
+    private void handleOverdraftToggle() {
+        BankAccount account = bankingService.getActiveAccount();
+        boolean enable = !account.isOverdraftEnabled();
+        System.out.println("\nOverdraft Protection Disclosure:");
+        System.out.println(
+                "Eligible transactions may use up to "
+                        + MoneyUtil.format(account.getOverdraftLimit())
+                        + " beyond the available balance."
+        );
+        System.out.println(
+                "A " + MoneyUtil.format(BankAccount.OVERDRAFT_FEE)
+                        + " fee is charged when a withdrawal or transfer makes the balance negative."
+        );
+        System.out.println("Current status: " + (enable ? "Disabled" : "Enabled"));
+        System.out.print("Enter current 4-digit PIN to "
+                + (enable ? "enable" : "disable") + " overdraft protection: ");
+        String pin = scanner.nextLine().trim();
+        bankingService.toggleOverdraft(enable, pin);
+        String updatedStatus = enable ? "Enabled" : "Disabled";
+        System.out.println("\n✅ Overdraft Protection is now " + updatedStatus + ".");
+        System.out.println("Updated status: " + updatedStatus);
     }
 
     private void handleLogout() {
