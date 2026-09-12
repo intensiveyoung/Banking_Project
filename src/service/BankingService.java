@@ -212,6 +212,18 @@ public class BankingService {
         return true;
     }
 
+    public void toggleOverdraft(boolean enable, String pin) {
+        ensureAccountSessionExists();
+        BankAccount account = getActiveAccount();
+        verifyPin(account, pin);
+        if (enable && account.getBalance() < 0.00) {
+            throw new IllegalStateException(
+                    "Cannot enable overdraft while account has a negative balance."
+            );
+        }
+        accountDAO.updateOverdraft(account.getAccountNumber(), enable);
+    }
+
     public void changePin(String currentPin, String newPin) {
         ensureAccountSessionExists();
 
@@ -268,11 +280,20 @@ public class BankingService {
 
         double fee = calculateWithdrawalFee(amount);
         double totalDebit = amount + fee;
-        if (account.getBalance() < totalDebit) {
+        double effectiveAvailable = account.getBalance()
+                + (account.isOverdraftEnabled() ? account.getOverdraftLimit() : 0.00);
+        if (totalDebit > effectiveAvailable) {
             logFailedWithdrawal(account.getAccountNumber(), amount);
             throw new IllegalArgumentException("Insufficient funds including service fee.");
         }
-        validateDailyLimit(account, totalDebit, "Daily withdrawal limit exceeded.", amount);
+        double overdraftFee = account.getBalance() - totalDebit < 0.00
+                ? BankAccount.OVERDRAFT_FEE : 0.00;
+        validateDailyLimit(
+                account,
+                totalDebit + overdraftFee,
+                "Daily withdrawal limit exceeded.",
+                amount
+        );
         accountDAO.withdraw(account.getAccountNumber(), amount, fee);
     }
 
@@ -302,12 +323,16 @@ public class BankingService {
         }
         double fee = calculateTransferFee(amount);
         double totalDebit = amount + fee;
-        if (source.getBalance() < totalDebit) {
+        double effectiveAvailable = source.getBalance()
+                + (source.isOverdraftEnabled() ? source.getOverdraftLimit() : 0.00);
+        if (totalDebit > effectiveAvailable) {
             throw new IllegalArgumentException("Insufficient funds including service fee.");
         }
+        double overdraftFee = source.getBalance() - totalDebit < 0.00
+                ? BankAccount.OVERDRAFT_FEE : 0.00;
         validateDailyLimit(
                 source,
-                totalDebit,
+                totalDebit + overdraftFee,
                 "Daily withdrawal limit exceeded. Funds not transferred.",
                 null
         );

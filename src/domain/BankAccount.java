@@ -18,9 +18,13 @@ public class BankAccount {
     private String pinSalt;
     private String securityQuestion;
     private String securityAnswerHash;
+    private boolean overdraftEnabled;
+    private double overdraftLimit;
     public static final double MINIMUM_DEPOSIT = 1.00;
     public static final double INITIAL_MIN_DEPOSIT = 5.00;
     public static final double MINIMUM_WITHDRAWAL = 1.00;
+    public static final double DEFAULT_OVERDRAFT_LIMIT = 500.00;
+    public static final double OVERDRAFT_FEE = 35.00;
 
     // Backwards compatibility constructor (defaults to real system time zone)
     public BankAccount(String accountNumber, String ownerName, double initialDeposit, Double dailyWithdrawalLimit) {
@@ -43,6 +47,8 @@ public class BankAccount {
         this.dailyWithdrawalLimit = dailyWithdrawalLimit;
         this.clock = clock;
         this.transactionHistory = new ArrayList<>();
+        this.overdraftEnabled = false;
+        this.overdraftLimit = DEFAULT_OVERDRAFT_LIMIT;
 
         if (recordInitialDeposit) {
             this.transactionHistory.add(new Transaction(
@@ -57,7 +63,14 @@ public class BankAccount {
 
     public static BankAccount rehydrate(String accountNumber, String ownerName, double balance,
                                         Double dailyWithdrawalLimit) {
-        return new BankAccount(
+        return rehydrate(accountNumber, ownerName, balance, dailyWithdrawalLimit,
+                false, DEFAULT_OVERDRAFT_LIMIT);
+    }
+
+    public static BankAccount rehydrate(String accountNumber, String ownerName, double balance,
+                                        Double dailyWithdrawalLimit, boolean overdraftEnabled,
+                                        double overdraftLimit) {
+        BankAccount account = new BankAccount(
                 accountNumber,
                 ownerName,
                 balance,
@@ -65,6 +78,9 @@ public class BankAccount {
                 Clock.systemDefaultZone(),
                 false
         );
+        account.setOverdraftEnabled(overdraftEnabled);
+        account.setOverdraftLimit(overdraftLimit);
+        return account;
     }
 
     public synchronized void deposit(double amount) {
@@ -112,11 +128,13 @@ public class BankAccount {
         if (amount <= MINIMUM_WITHDRAWAL) {
             throw new IllegalArgumentException("Withdrawal amount must be greater than " + MoneyUtil.format(MINIMUM_WITHDRAWAL));
         }
-        if (totalDebit > balance) {
+        if (totalDebit > getEffectiveAvailable()) {
             throw new IllegalArgumentException("Insufficient funds including service fee.");
         }
+        double overdraftFee = balance - totalDebit < 0.00 ? OVERDRAFT_FEE : 0.00;
         if (dailyWithdrawalLimit != null
-                && getOutgoingAmountForDate(LocalDate.now(clock)) + totalDebit > dailyWithdrawalLimit) {
+                && getOutgoingAmountForDate(LocalDate.now(clock)) + totalDebit + overdraftFee
+                > dailyWithdrawalLimit) {
             throw new DailyLimitExceededException("Daily withdrawal limit exceeded.");
         }
 
@@ -126,6 +144,9 @@ public class BankAccount {
                 TransactionStatus.SUCCESS
         ));
         chargeServiceFee(fee);
+        if (overdraftFee > 0.00) {
+            chargeServiceFee(overdraftFee);
+        }
     }
 
     public synchronized void chargeServiceFee(double fee) {
@@ -138,7 +159,7 @@ public class BankAccount {
 
     public synchronized void transferOut(double amount) {
         validateTransferAmount(amount);
-        if (amount > balance) {
+        if (amount > getEffectiveAvailable()) {
             throw new InsufficientFundsException("Insufficient funds for this transfer.");
         }
         if (dailyWithdrawalLimit != null
@@ -198,6 +219,18 @@ public class BankAccount {
     public void setSecurityQuestion(String securityQuestion) { this.securityQuestion = securityQuestion; }
     public String getSecurityAnswerHash() { return securityAnswerHash; }
     public void setSecurityAnswerHash(String securityAnswerHash) { this.securityAnswerHash = securityAnswerHash; }
+    public boolean isOverdraftEnabled() { return overdraftEnabled; }
+    public void setOverdraftEnabled(boolean overdraftEnabled) { this.overdraftEnabled = overdraftEnabled; }
+    public double getOverdraftLimit() { return overdraftLimit; }
+    public void setOverdraftLimit(double overdraftLimit) {
+        if (!Double.isFinite(overdraftLimit) || overdraftLimit < 0.00) {
+            throw new IllegalArgumentException("Overdraft limit cannot be negative.");
+        }
+        this.overdraftLimit = overdraftLimit;
+    }
+    public double getEffectiveAvailable() {
+        return balance + (overdraftEnabled ? overdraftLimit : 0.00);
+    }
 
     public synchronized void hydrateTransaction(Transaction tx) {
         // Directly appends a historical transaction record from the DB without executing mutations

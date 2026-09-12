@@ -30,7 +30,9 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     account_number VARCHAR(10) PRIMARY KEY,
                     owner_name VARCHAR(100) NOT NULL,
                     balance DOUBLE PRECISION NOT NULL,
-                    daily_limit DOUBLE PRECISION
+                    daily_limit DOUBLE PRECISION,
+                    overdraft_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    overdraft_limit DOUBLE PRECISION NOT NULL DEFAULT 500.00
                 );
                 """;
             String createTransactionsTable = """
@@ -48,6 +50,8 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
             String addPinSaltColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS pin_salt VARCHAR(255)";
             String addSecurityQuestionColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS security_question VARCHAR(255)";
             String addSecurityAnswerHashColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS security_answer_hash VARCHAR(255)";
+            String addOverdraftEnabledColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS overdraft_enabled BOOLEAN NOT NULL DEFAULT FALSE";
+            String addOverdraftLimitColumn = "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS overdraft_limit DOUBLE PRECISION NOT NULL DEFAULT 500.00";
 
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute(createAccountsTable);
@@ -56,6 +60,8 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                 stmt.execute(addPinSaltColumn);
                 stmt.execute(addSecurityQuestionColumn);
                 stmt.execute(addSecurityAnswerHashColumn);
+                stmt.execute(addOverdraftEnabledColumn);
+                stmt.execute(addOverdraftLimitColumn);
             }
         } catch (SQLException e) {
             throw new RuntimeException("Database initialization failed: " + e.getMessage(), e);
@@ -92,8 +98,10 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     pin_hash,
                     pin_salt,
                     security_question,
-                    security_answer_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    security_answer_hash,
+                    overdraft_enabled,
+                    overdraft_limit
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, account.getAccountNumber());
@@ -112,6 +120,8 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
             setNullableString(pstmt, 6, account.getPinSalt());
             setNullableString(pstmt, 7, account.getSecurityQuestion());
             setNullableString(pstmt, 8, account.getSecurityAnswerHash());
+            pstmt.setBoolean(9, account.isOverdraftEnabled());
+            pstmt.setDouble(10, account.getOverdraftLimit());
             pstmt.executeUpdate();
 
             if (!account.getTransactionHistory().isEmpty()) {
@@ -137,9 +147,13 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     String pinSalt = rs.getString("pin_salt");
                     String securityQuestion = rs.getString("security_question");
                     String securityAnswerHash = rs.getString("security_answer_hash");
+                    boolean overdraftEnabled = rs.getBoolean("overdraft_enabled");
+                    double overdraftLimit = rs.getDouble("overdraft_limit");
 
                     // Rehydrate the domain object state from database data metrics
-                    BankAccount account = BankAccount.rehydrate(accountNumber, name, bal, limit);
+                    BankAccount account = BankAccount.rehydrate(
+                            accountNumber, name, bal, limit, overdraftEnabled, overdraftLimit
+                    );
                     account.setPinHash(pinHash);
                     account.setPinSalt(pinSalt);
                     account.setSecurityQuestion(securityQuestion);
@@ -178,7 +192,7 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
 
     @Override
     public void withdraw(String accountNumber, double amount, double fee) {
-        String lockAccountSql = "SELECT balance FROM accounts WHERE account_number = ? FOR UPDATE";
+        String lockAccountSql = "SELECT balance, overdraft_enabled, overdraft_limit FROM accounts WHERE account_number = ? FOR UPDATE";
         String updateBalanceSql = "UPDATE accounts SET balance = ? WHERE account_number = ?";
         String insertTransactionSql = """
                 INSERT INTO transactions (account_number, type, amount, timestamp, resulting_balance, status)
@@ -192,20 +206,28 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                  PreparedStatement insertTransaction = conn.prepareStatement(insertTransactionSql)) {
                 lockAccount.setString(1, accountNumber);
                 double balance;
+                boolean overdraftEnabled;
+                double overdraftLimit;
                 try (ResultSet resultSet = lockAccount.executeQuery()) {
                     if (!resultSet.next()) {
                         throw new SQLException("Account must exist to complete a withdrawal.");
                     }
                     balance = resultSet.getDouble("balance");
+                    overdraftEnabled = resultSet.getBoolean("overdraft_enabled");
+                    overdraftLimit = resultSet.getDouble("overdraft_limit");
                 }
 
                 double totalDebit = amount + fee;
-                if (!Double.isFinite(totalDebit) || totalDebit > balance) {
+                double effectiveAvailable = balance + (overdraftEnabled ? overdraftLimit : 0.00);
+                if (!Double.isFinite(totalDebit) || totalDebit > effectiveAvailable) {
                     throw new SQLException("Insufficient funds including service fee.");
                 }
+                double overdraftFee = balance - totalDebit < 0.00
+                        ? BankAccount.OVERDRAFT_FEE : 0.00;
 
                 double balanceAfterWithdrawal = balance - amount;
-                double finalBalance = balance - totalDebit;
+                double balanceAfterServiceFee = balance - totalDebit;
+                double finalBalance = balanceAfterServiceFee - overdraftFee;
                 updateBalance.setDouble(1, finalBalance);
                 updateBalance.setString(2, accountNumber);
                 updateBalance.executeUpdate();
@@ -225,8 +247,12 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                         TransactionType.SERVICE_FEE,
                         fee,
                         timestamp,
-                        finalBalance
+                        balanceAfterServiceFee
                 );
+                if (overdraftFee > 0.00) {
+                    insertTransaction(insertTransaction, accountNumber, TransactionType.SERVICE_FEE,
+                            overdraftFee, timestamp, finalBalance);
+                }
                 conn.commit();
             } catch (SQLException e) {
                 rollback(conn, e);
@@ -245,7 +271,7 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
     @Override
     public void transferFunds(String sourceAcc, String targetAcc, double amount, double fee) {
         String lockAccountsSql = """
-                SELECT account_number, balance FROM accounts
+                SELECT account_number, balance, overdraft_enabled, overdraft_limit FROM accounts
                 WHERE account_number IN (?, ?)
                 ORDER BY account_number FOR UPDATE
                 """;
@@ -264,10 +290,14 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                 lockAccounts.setString(2, targetAcc);
                 double sourceBalance = Double.NaN;
                 double targetBalance = Double.NaN;
+                boolean overdraftEnabled = false;
+                double overdraftLimit = 0.00;
                 try (ResultSet resultSet = lockAccounts.executeQuery()) {
                     while (resultSet.next()) {
                         if (sourceAcc.equals(resultSet.getString("account_number"))) {
                             sourceBalance = resultSet.getDouble("balance");
+                            overdraftEnabled = resultSet.getBoolean("overdraft_enabled");
+                            overdraftLimit = resultSet.getDouble("overdraft_limit");
                         } else {
                             targetBalance = resultSet.getDouble("balance");
                         }
@@ -277,12 +307,17 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                     throw new SQLException("Both accounts must exist to complete a transfer.");
                 }
                 double totalDebit = amount + fee;
-                if (!Double.isFinite(totalDebit) || totalDebit > sourceBalance) {
+                double effectiveAvailable = sourceBalance
+                        + (overdraftEnabled ? overdraftLimit : 0.00);
+                if (!Double.isFinite(totalDebit) || totalDebit > effectiveAvailable) {
                     throw new SQLException("Insufficient funds including service fee.");
                 }
+                double overdraftFee = sourceBalance - totalDebit < 0.00
+                        ? BankAccount.OVERDRAFT_FEE : 0.00;
 
                 double sourceBalanceAfterTransfer = sourceBalance - amount;
-                double newSourceBalance = sourceBalance - totalDebit;
+                double sourceBalanceAfterServiceFee = sourceBalance - totalDebit;
+                double newSourceBalance = sourceBalanceAfterServiceFee - overdraftFee;
                 double newTargetBalance = targetBalance + amount;
                 updateBalance.setDouble(1, newSourceBalance);
                 updateBalance.setString(2, sourceAcc);
@@ -296,7 +331,11 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                         amount, timestamp, sourceBalanceAfterTransfer);
                 if (fee > 0.00) {
                     insertTransaction(insertTransaction, sourceAcc, TransactionType.SERVICE_FEE,
-                            fee, timestamp, newSourceBalance);
+                            fee, timestamp, sourceBalanceAfterServiceFee);
+                }
+                if (overdraftFee > 0.00) {
+                    insertTransaction(insertTransaction, sourceAcc, TransactionType.SERVICE_FEE,
+                            overdraftFee, timestamp, newSourceBalance);
                 }
                 insertTransaction(insertTransaction, targetAcc, TransactionType.TRANSFER_IN,
                         amount, timestamp, newTargetBalance);
@@ -340,6 +379,20 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
             }
         } catch (SQLException e) {
             throw new RuntimeException("Error updating account profile configuration", e);
+        }
+    }
+
+    @Override
+    public void updateOverdraft(String accountNumber, boolean overdraftEnabled) {
+        String sql = "UPDATE accounts SET overdraft_enabled = ? WHERE account_number = ?";
+        try (Connection conn = getConnection(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setBoolean(1, overdraftEnabled);
+            pstmt.setString(2, accountNumber);
+            if (pstmt.executeUpdate() != 1) {
+                throw new IllegalArgumentException("Account number not found.");
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error updating overdraft protection", e);
         }
     }
 

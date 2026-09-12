@@ -26,19 +26,40 @@ public interface BankAccountDAO {
     }
     void transferFunds(String sourceAcc, String targetAcc, double amount);
     default void transferFunds(String sourceAcc, String targetAcc, double amount, double fee) {
-        transferFunds(sourceAcc, targetAcc, amount);
         BankAccount source = findAccountByNumber(sourceAcc);
         if (source == null) {
             throw new IllegalArgumentException("Account number not found.");
         }
+        double startingBalance = source.getBalance();
+        double totalDebit = amount + fee;
+        if (!Double.isFinite(totalDebit) || totalDebit > source.getEffectiveAvailable()) {
+            throw new IllegalArgumentException("Insufficient funds including service fee.");
+        }
+        transferFunds(sourceAcc, targetAcc, amount);
         source.chargeServiceFee(fee);
+        boolean overdraftFeeAssessed = startingBalance - totalDebit < 0.00;
+        if (overdraftFeeAssessed) {
+            source.chargeServiceFee(BankAccount.OVERDRAFT_FEE);
+        }
         updateAccountBalance(sourceAcc, source.getBalance());
-        logTransaction(
-                sourceAcc,
-                source.getTransactionHistory().get(source.getTransactionHistory().size() - 1)
-        );
+        int serviceFeeIndex = source.getTransactionHistory().size()
+                - (overdraftFeeAssessed ? 2 : 1);
+        logTransaction(sourceAcc, source.getTransactionHistory().get(serviceFeeIndex));
+        if (overdraftFeeAssessed) {
+            logTransaction(
+                    sourceAcc,
+                    source.getTransactionHistory().get(source.getTransactionHistory().size() - 1)
+            );
+        }
     }
     void updateAccountProfile(String accountNumber, String newName, Double newLimit);
+    default void updateOverdraft(String accountNumber, boolean overdraftEnabled) {
+        BankAccount account = findAccountByNumber(accountNumber);
+        if (account == null) {
+            throw new IllegalArgumentException("Account number not found.");
+        }
+        account.setOverdraftEnabled(overdraftEnabled);
+    }
     void updateAccountSecurity(String accountNumber, String pinHash, String pinSalt,
                                String securityQuestion, String securityAnswerHash);
     void logTransaction(String accountNumber, Transaction transaction);
