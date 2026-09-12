@@ -4,7 +4,6 @@ import domain.BankAccount;
 import domain.AccountNumberGenerator;
 import domain.DurationFilter;
 import domain.DailyLimitExceededException;
-import domain.InsufficientFundsException;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
@@ -20,6 +19,9 @@ import java.util.Objects;
 
 public class BankingService {
     private static final String SECURITY_HASH_SEPARATOR = ":";
+    private static final double WITHDRAWAL_FEE = 1.50;
+    private static final double TRANSFER_FEE_RATE = 0.01;
+    private static final double MINIMUM_TRANSFER_FEE = 0.50;
     private final BankAccountDAO accountDAO;
     private final Clock clock;
     private String activeAccountNumber; // Keeps track of which user account number session is logged in
@@ -257,23 +259,27 @@ public class BankingService {
     public void withdraw(double amount) {
         ensureAccountSessionExists();
         BankAccount account = getActiveAccount();
-
-        // Crucial: Hydrate structural local daily limit context by pulling recent database logs
-        // This ensures tracking limits functions correctly over consecutive separate run windows!
-        List<Transaction> dbHistory = accountDAO.getTransactionHistory(account.getAccountNumber());
-        // Hydrate the local object with missing database transactions
-        for (int i = account.getTransactionHistory().size(); i < dbHistory.size(); i++) {
-            Transaction historicalTx = dbHistory.get(i);
-            account.hydrateTransaction(historicalTx); // Synchronizes the transient state!
+        if (!Double.isFinite(amount) || amount <= BankAccount.MINIMUM_WITHDRAWAL) {
+            throw new IllegalArgumentException(
+                    "Withdrawal amount must be greater than "
+                            + domain.MoneyUtil.format(BankAccount.MINIMUM_WITHDRAWAL)
+            );
         }
 
-        try {
-            account.withdraw(amount);
-            accountDAO.updateAccountBalance(account.getAccountNumber(), account.getBalance());
-        } finally {
-            // Log transaction regardless of SUCCESS or FAILED state outcome per rules
-            accountDAO.logTransaction(account.getAccountNumber(), account.getTransactionHistory().get(account.getTransactionHistory().size() - 1));
+        double fee = calculateWithdrawalFee(amount);
+        double totalDebit = amount + fee;
+        if (account.getBalance() < totalDebit) {
+            logFailedWithdrawal(account.getAccountNumber(), amount);
+            throw new IllegalArgumentException("Insufficient funds including service fee.");
         }
+        validateDailyLimit(account, totalDebit, "Daily withdrawal limit exceeded.", amount);
+        accountDAO.withdraw(account.getAccountNumber(), amount, fee);
+    }
+
+    public void withdraw(double amount, String pin) {
+        ensureAccountSessionExists();
+        verifyPin(getActiveAccount(), pin);
+        withdraw(amount);
     }
 
     public void transfer(String targetAccNum, double amount, String pin) {
@@ -286,10 +292,7 @@ public class BankingService {
         }
 
         BankAccount source = getActiveAccount();
-        if (pin == null || source.getPinHash() == null || source.getPinSalt() == null
-                || !SecurityUtil.hashPin(pin, source.getPinSalt()).equals(source.getPinHash())) {
-            throw new IllegalArgumentException("Incorrect PIN.");
-        }
+        verifyPin(source, pin);
         String targetAccountNumber = targetAccNum.trim();
         if (source.getAccountNumber().equals(targetAccountNumber)) {
             throw new IllegalArgumentException("You cannot transfer funds to the same account.");
@@ -297,14 +300,38 @@ public class BankingService {
         if (accountDAO.findAccountByNumber(targetAccountNumber) == null) {
             throw new IllegalArgumentException("Target account number not found.");
         }
-        if (amount > source.getBalance()) {
-            throw new InsufficientFundsException("Insufficient funds for this transfer.");
+        double fee = calculateTransferFee(amount);
+        double totalDebit = amount + fee;
+        if (source.getBalance() < totalDebit) {
+            throw new IllegalArgumentException("Insufficient funds including service fee.");
         }
-        validateTransferDailyLimit(source, amount);
-        accountDAO.transferFunds(source.getAccountNumber(), targetAccountNumber, amount);
+        validateDailyLimit(
+                source,
+                totalDebit,
+                "Daily withdrawal limit exceeded. Funds not transferred.",
+                null
+        );
+        accountDAO.transferFunds(source.getAccountNumber(), targetAccountNumber, amount, fee);
     }
 
-    private void validateTransferDailyLimit(BankAccount source, double amount) {
+    public double calculateWithdrawalFee(double amount) {
+        return WITHDRAWAL_FEE;
+    }
+
+    public double calculateTransferFee(double amount) {
+        double percentageFee = amount * TRANSFER_FEE_RATE;
+        return Math.max(MINIMUM_TRANSFER_FEE, percentageFee);
+    }
+
+    private void verifyPin(BankAccount account, String pin) {
+        if (pin == null || account.getPinHash() == null || account.getPinSalt() == null
+                || !SecurityUtil.hashPin(pin, account.getPinSalt()).equals(account.getPinHash())) {
+            throw new IllegalArgumentException("Incorrect PIN.");
+        }
+    }
+
+    private void validateDailyLimit(BankAccount source, double totalDebit, String errorMessage,
+                                    Double failedWithdrawalAmount) {
         Double dailyLimit = source.getDailyWithdrawalLimit();
         if (dailyLimit == null) {
             return;
@@ -313,13 +340,30 @@ public class BankingService {
         double outgoingToday = accountDAO.getTransactionHistory(source.getAccountNumber()).stream()
                 .filter(transaction -> transaction.getStatus() == domain.TransactionStatus.SUCCESS)
                 .filter(transaction -> transaction.getType() == TransactionType.WITHDRAWAL
-                        || transaction.getType() == TransactionType.TRANSFER_OUT)
+                        || transaction.getType() == TransactionType.TRANSFER_OUT
+                        || transaction.getType() == TransactionType.SERVICE_FEE)
                 .filter(transaction -> transaction.getTimestamp().toLocalDate().isEqual(today))
                 .mapToDouble(Transaction::getAmount)
                 .sum();
-        if (outgoingToday + amount > dailyLimit) {
-            throw new DailyLimitExceededException("Daily withdrawal limit exceeded. Funds not transferred.");
+        if (outgoingToday + totalDebit > dailyLimit) {
+            if (failedWithdrawalAmount != null) {
+                logFailedWithdrawal(source.getAccountNumber(), failedWithdrawalAmount);
+            }
+            throw new DailyLimitExceededException(errorMessage);
         }
+    }
+
+    private void logFailedWithdrawal(String accountNumber, double amount) {
+        accountDAO.logTransaction(
+                accountNumber,
+                new Transaction(
+                        TransactionType.WITHDRAWAL,
+                        amount,
+                        LocalDateTime.now(clock),
+                        null,
+                        domain.TransactionStatus.FAILED
+                )
+        );
     }
 
     public double checkBalance() {

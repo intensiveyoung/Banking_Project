@@ -6,5 +6,6 @@ public enum TransactionType {
     TRANSFER,
     TRANSFER_OUT,
     TRANSFER_IN,
+    SERVICE_FEE,
     ALL
 }

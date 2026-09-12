@@ -345,7 +345,21 @@ public class App {
     private void handleWithdrawal() {
         System.out.print("Enter withdrawal amount: $");
         double amount = readDoubleInput();
-        bankingService.withdraw(amount);
+        double fee = bankingService.calculateWithdrawalFee(amount);
+        double totalDebit = amount + fee;
+        System.out.println("\nWithdrawal summary:");
+        System.out.println("   Amount: " + MoneyUtil.format(amount));
+        System.out.println("   Service fee: " + MoneyUtil.format(fee));
+        System.out.println("   Total debit: " + MoneyUtil.format(totalDebit));
+        System.out.print("Proceed with withdrawal? 1. Proceed, 2. Cancel: ");
+        String confirmation = getValidMenuChoice("");
+        if (!"1".equals(confirmation)) {
+            System.out.println("\nWithdrawal cancelled.");
+            return;
+        }
+        System.out.print("Enter current 4-digit PIN: ");
+        String pin = scanner.nextLine().trim();
+        bankingService.withdraw(amount, pin);
         System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
     }
 
@@ -354,8 +368,13 @@ public class App {
         String targetAccountNumber = scanner.nextLine().trim();
         System.out.print("Enter transfer amount: $");
         double amount = readDoubleInput();
-        System.out.printf("Send %s to account %s? 1. Proceed, 2. Cancel: ",
-                MoneyUtil.format(amount), targetAccountNumber);
+        double fee = bankingService.calculateTransferFee(amount);
+        double totalDebit = amount + fee;
+        System.out.println("\nTransfer summary:");
+        System.out.println("   Amount: " + MoneyUtil.format(amount));
+        System.out.println("   Service fee: " + MoneyUtil.format(fee));
+        System.out.println("   Total debit: " + MoneyUtil.format(totalDebit));
+        System.out.printf("Send to account %s? 1. Proceed, 2. Cancel: ", targetAccountNumber);
         String confirmation = getValidMenuChoice("");
         if (!"1".equals(confirmation)) {
             System.out.println("\nℹ️ Transfer cancelled.");

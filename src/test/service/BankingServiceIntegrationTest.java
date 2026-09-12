@@ -129,17 +129,17 @@ class BankingServiceIntegrationTest {
 
         // 3. Perform a successful withdrawal within daily limits
         service.withdraw(30.00);
-        assertEquals(71.00, service.checkBalance());
+        assertEquals(69.50, service.checkBalance());
 
         // 4. Trigger a failure due to breaching daily limits ($30 successful + $25 attempted > $50 limit)
         assertThrows(DailyLimitExceededException.class, () -> service.withdraw(25.00));
-        assertEquals(71.00, service.checkBalance(), "Balance must remain unchanged after a failed withdrawal");
+        assertEquals(69.50, service.checkBalance(), "Balance must remain unchanged after a failed withdrawal");
 
         // 5. Verify the state of the transaction history ledger
         List<Transaction> history = service.getHistory();
 
-        // Expected ledger count: 1 Initial Deposit + 1 Manual Deposit + 1 Success Withdraw + 1 Failed Withdraw = 4
-        assertEquals(4, history.size());
+        // Initial deposit, manual deposit, withdrawal, service fee and failed withdrawal
+        assertEquals(5, history.size());
 
         // Verify the final transaction logged is the FAILED one with a null balance pointer
         Transaction failedTx = history.get(history.size() - 1);
@@ -168,6 +168,53 @@ class BankingServiceIntegrationTest {
         assertEquals(50.00, cleanupDAO.findAccountByNumber(targetAccountNumber).getBalance());
         assertEquals(1, cleanupDAO.getTransactionHistory(sourceAccountNumber).size());
         assertEquals(1, cleanupDAO.getTransactionHistory(targetAccountNumber).size());
+    }
+
+    @Test
+    @DisplayName("Integration Test: PostgreSQL applies fees atomically and records fee entries")
+    void postgresAppliesFeesAndRecordsFeeEntries() {
+        String sourceAccountNumber = openTrackedAccount(
+                service, "Fee Source", 200.00, null, "1234",
+                SecurityQuestion.FIRST_PET.getText(), "Milo"
+        );
+        String targetAccountNumber = openTrackedAccount(
+                service, "Fee Target", 50.00, null, "4321",
+                SecurityQuestion.FAVORITE_BOOK.getText(), "Dune"
+        );
+
+        service.login(sourceAccountNumber, "1234");
+        service.withdraw(20.00);
+        service.transfer(targetAccountNumber, 100.00, "1234");
+
+        assertEquals(77.50, cleanupDAO.findAccountByNumber(sourceAccountNumber).getBalance());
+        assertEquals(150.00, cleanupDAO.findAccountByNumber(targetAccountNumber).getBalance());
+        List<Transaction> sourceHistory = cleanupDAO.getTransactionHistory(sourceAccountNumber);
+        assertEquals(2, sourceHistory.stream()
+                .filter(transaction -> transaction.getType() == TransactionType.SERVICE_FEE)
+                .count());
+        assertTrue(sourceHistory.stream().anyMatch(transaction ->
+                transaction.getType() == TransactionType.SERVICE_FEE
+                        && transaction.getAmount() == 1.50));
+        assertTrue(sourceHistory.stream().anyMatch(transaction ->
+                transaction.getType() == TransactionType.SERVICE_FEE
+                        && transaction.getAmount() == 1.00));
+    }
+
+    @Test
+    @DisplayName("Integration Test: PostgreSQL balance stays unchanged when fee cannot be covered")
+    void postgresRejectsPrincipalWithoutFeeCoverage() {
+        String accountNumber = openTrackedAccount(
+                service, "Fee Boundary", 20.00, null, "1234",
+                SecurityQuestion.FIRST_PET.getText(), "Milo"
+        );
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.withdraw(20.00)
+        );
+
+        assertEquals("Insufficient funds including service fee.", error.getMessage());
+        assertEquals(20.00, cleanupDAO.findAccountByNumber(accountNumber).getBalance());
     }
 
     @Test
