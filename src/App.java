@@ -7,6 +7,7 @@ import domain.Transaction;
 import domain.TransactionStatus;
 import domain.TransactionType;
 import service.BankingService;
+import util.ConsoleColor;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -47,7 +48,7 @@ public class App {
     }
 
     public void runAppLoop() {
-        System.out.println("=== WELCOME TO CORE BANKING SYSTEM ===");
+        System.out.println(ConsoleColor.cyan("=== WELCOME TO CORE BANKING SYSTEM ==="));
         boolean running = true;
 
         while (running) {
@@ -58,7 +59,7 @@ public class App {
                     running = runAuthenticatedMenu();
                 }
             } catch (Exception e) {
-                System.out.println("\n❌ ERROR: " + e.getMessage());
+                System.out.println("\n" + ConsoleColor.red("ERROR: " + e.getMessage()));
             }
         }
         scanner.close();
@@ -68,11 +69,11 @@ public class App {
      * STATE 1: Gateway Session Menu
      */
     private boolean runUnauthenticatedMenu() {
-        System.out.println("\n---------------------------------");
+        System.out.println("\n" + ConsoleColor.cyan("---------------------------------"));
         System.out.println("1. Open New Savings Account");
         System.out.println("2. Login to Existing Account");
         System.out.println("3. Exit System");
-        System.out.println("---------------------------------");
+        System.out.println(ConsoleColor.cyan("---------------------------------"));
 
         String choice = getValidMenuChoice("Select an option (1-3): ");
 
@@ -80,10 +81,12 @@ public class App {
             case "1" -> handleOpenAccount();
             case "2" -> handleLogin();
             case "3" -> {
-                System.out.println("\nThank you for banking with us. Goodbye!");
+                System.out.println("\n" + ConsoleColor.yellow("Thank you for banking with us. Goodbye!"));
                 return false;
             }
-            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 3.");
+            default -> System.out.println("\n" + ConsoleColor.red(
+                    "Invalid choice! Please select an option between 1 and 3."
+            ));
         }
         return true;
     }
@@ -93,16 +96,18 @@ public class App {
      */
     private boolean runAuthenticatedMenu() {
         BankAccount account = bankingService.getActiveAccount();
-        System.out.println("\n=================================");
-        System.out.println("👤 SESSION: " + account.getOwnerName() + " (" + account.getAccountNumber() + ")");
-        System.out.println("---------------------------------");
+        System.out.println("\n" + ConsoleColor.cyan("================================="));
+        System.out.println(ConsoleColor.cyan(
+                "SESSION: " + account.getOwnerName() + " (" + account.getAccountNumber() + ")"
+        ));
+        System.out.println(ConsoleColor.cyan("---------------------------------"));
         System.out.println("1. Deposit Funds");
         System.out.println("2. Withdraw Funds");
         System.out.println("3. Transfer Funds");
         System.out.println("4. View Transaction Ledger History");
         System.out.println("5. Profile & Security Settings");
         System.out.println("6. Logout");
-        System.out.println("=================================");
+        System.out.println(ConsoleColor.cyan("================================="));
 
         String choice = getValidMenuChoice("Select an option (1-6): ");
 
@@ -113,13 +118,15 @@ public class App {
             case "4" -> handleTransactionHistory();
             case "5" -> handleProfileSettings();
             case "6" -> handleLogout();
-            default -> System.out.println("\n❌ Invalid choice! Please select an option between 1 and 6.");
+            default -> System.out.println("\n" + ConsoleColor.red(
+                    "Invalid choice! Please select an option between 1 and 6."
+            ));
         }
         return true;
     }
 
     /**
-     * 🛡️ THE SYNCHRONOUS SHIELD
+     * THE SYNCHRONOUS SHIELD
      * Forces the terminal to stay locked here until a non-empty choice is typed.
      * This naturally swallows accidental rapid double-enters.
      */
@@ -167,7 +174,7 @@ public class App {
                 securitySetup.question(),
                 securitySetup.answer()
         );
-        System.out.println("\n✅ Account successfully created!");
+        System.out.println("\n" + ConsoleColor.green("Account successfully created!"));
         System.out.println("   Account Number: " + accountNum);
         System.out.println("   Account Holder: " + name);
     }
@@ -187,11 +194,15 @@ public class App {
             handleSecuredAccountLogin(account);
         }
         account = bankingService.getActiveAccount();
-        System.out.println("\n✅ Login successful! Welcome back, " + account.getOwnerName() + "!");
+        System.out.println("\n" + ConsoleColor.green(
+                "Login successful! Welcome back, " + account.getOwnerName() + "!"
+        ));
     }
 
     private void handleLegacySecurityEnrollment(BankAccount account) {
-        System.out.println("\nThis legacy account requires security enrollment.");
+        System.out.println("\n" + ConsoleColor.yellow(
+                "This legacy account requires security enrollment."
+        ));
         System.out.print("Confirm account owner full name: ");
         String ownerName = scanner.nextLine().trim();
         bankingService.verifyLegacyOwner(account.getAccountNumber(), ownerName);
@@ -205,7 +216,9 @@ public class App {
                 securitySetup.answer()
         );
         bankingService.login(account.getAccountNumber(), securitySetup.pin());
-        System.out.println("\n✅ Account security enrollment completed successfully!");
+        System.out.println("\n" + ConsoleColor.green(
+                "Account security enrollment completed successfully!"
+        ));
     }
 
     private void handleSecuredAccountLogin(BankAccount account) {
@@ -221,7 +234,7 @@ public class App {
         System.out.print("Enter security answer: ");
         String securityAnswer = scanner.nextLine().trim();
         bankingService.verifySecurityAnswer(account.getAccountNumber(), securityAnswer);
-        System.out.println("\n✅ Security answer verified successfully!");
+        System.out.println("\n" + ConsoleColor.green("Security answer verified successfully!"));
 
         System.out.print("Enter a new 4-digit PIN: ");
         String newPin = scanner.nextLine().trim();
@@ -233,7 +246,7 @@ public class App {
         System.out.print(pinPrompt);
         String pin = scanner.nextLine().trim();
 
-        System.out.println("Select a security question:");
+        System.out.println(ConsoleColor.cyan("Select a security question:"));
         SecurityQuestion[] questions = SecurityQuestion.values();
         for (int index = 0; index < questions.length; index++) {
             System.out.println((index + 1) + ". " + questions[index].getText());
@@ -257,13 +270,17 @@ public class App {
     private void handleProfileSettings() {
         boolean settingsOpen = true;
         while (settingsOpen) {
-            System.out.println("\n========== PROFILE & SECURITY SETTINGS ==========");
+            System.out.println("\n" + ConsoleColor.cyan(
+                    "========== PROFILE & SECURITY SETTINGS =========="
+            ));
             System.out.println("1. Update Display Name");
             System.out.println("2. Adjust Daily Withdrawal Limit");
             System.out.println("3. Change Security PIN");
             System.out.println("4. Toggle Overdraft Protection");
             System.out.println("5. Back");
-            System.out.println("=================================================");
+            System.out.println(ConsoleColor.cyan(
+                    "================================================="
+            ));
 
             String choice = getValidMenuChoice("Select an option (1-5): ");
             switch (choice) {
@@ -272,9 +289,9 @@ public class App {
                 case "3" -> handlePinChange();
                 case "4" -> handleOverdraftToggle();
                 case "5" -> settingsOpen = false;
-                default -> System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 5."
-                );
+                default -> System.out.println("\n" + ConsoleColor.red(
+                        "Invalid choice! Please select an option between 1 and 5."
+                ));
             }
         }
     }
@@ -283,11 +300,11 @@ public class App {
         System.out.print("Enter new display name: ");
         String newName = scanner.nextLine().trim();
         if (bankingService.updateOwnerName(newName)) {
-            System.out.println("\n✅ Display name updated successfully!");
+            System.out.println("\n" + ConsoleColor.green("Display name updated successfully!"));
         } else {
-            System.out.println(
-                    "\nℹ️ Display name is already set to '" + newName + "'. No changes were made."
-            );
+            System.out.println("\n" + ConsoleColor.yellow(
+                    "Display name is already set to '" + newName + "'. No changes were made."
+            ));
         }
     }
 
@@ -305,20 +322,24 @@ public class App {
 
         if (!bankingService.updateDailyLimit(newLimit)) {
             if (newLimit == null) {
-                System.out.println("\nℹ️ Daily withdrawal limit remains unchanged.");
+                System.out.println("\n" + ConsoleColor.yellow(
+                        "Daily withdrawal limit remains unchanged."
+                ));
             } else {
-                System.out.println(
-                        "\nℹ️ Daily withdrawal limit of "
+                System.out.println("\n" + ConsoleColor.yellow(
+                        "Daily withdrawal limit of "
                                 + MoneyUtil.format(newLimit)
                                 + " remains unchanged."
-                );
+                ));
             }
         } else if (newLimit == null) {
-            System.out.println("\n✅ Daily withdrawal limit removed successfully!");
+            System.out.println("\n" + ConsoleColor.green(
+                    "Daily withdrawal limit removed successfully!"
+            ));
         } else {
-            System.out.println(
-                    "\n✅ Daily withdrawal limit updated to " + MoneyUtil.format(newLimit) + "!"
-            );
+            System.out.println("\n" + ConsoleColor.green(
+                    "Daily withdrawal limit updated to " + MoneyUtil.format(newLimit) + "!"
+            ));
         }
     }
 
@@ -329,13 +350,13 @@ public class App {
         String newPin = scanner.nextLine().trim();
 
         bankingService.changePin(currentPin, newPin);
-        System.out.println("\n✅ Security PIN changed successfully!");
+        System.out.println("\n" + ConsoleColor.green("Security PIN changed successfully!"));
     }
 
     private void handleOverdraftToggle() {
         BankAccount account = bankingService.getActiveAccount();
         boolean enable = !account.isOverdraftEnabled();
-        System.out.println("\nOverdraft Protection Disclosure:");
+        System.out.println("\n" + ConsoleColor.cyan("Overdraft Protection Disclosure:"));
         System.out.println(
                 "Eligible transactions may use up to "
                         + MoneyUtil.format(account.getOverdraftLimit())
@@ -345,26 +366,36 @@ public class App {
                 "A " + MoneyUtil.format(BankAccount.OVERDRAFT_FEE)
                         + " fee is charged when a withdrawal or transfer makes the balance negative."
         );
-        System.out.println("Current status: " + (enable ? "Disabled" : "Enabled"));
+        System.out.println(ConsoleColor.yellow(
+                "Current status: " + (enable ? "Disabled" : "Enabled")
+        ));
         System.out.print("Enter current 4-digit PIN to "
                 + (enable ? "enable" : "disable") + " overdraft protection: ");
         String pin = scanner.nextLine().trim();
         bankingService.toggleOverdraft(enable, pin);
         String updatedStatus = enable ? "Enabled" : "Disabled";
-        System.out.println("\n✅ Overdraft Protection is now " + updatedStatus + ".");
-        System.out.println("Updated status: " + updatedStatus);
+        System.out.println("\n" + ConsoleColor.green(
+                "Overdraft Protection is now " + updatedStatus + "."
+        ));
+        System.out.println(ConsoleColor.yellow("Updated status: " + updatedStatus));
     }
 
     private void handleLogout() {
         bankingService.logout();
-        System.out.println("\n✅ You have been securely signed out of your account.");
+        System.out.println("\n" + ConsoleColor.green(
+                "You have been securely signed out of your account."
+        ));
     }
 
     private void handleDeposit() {
         System.out.print("Enter deposit amount (Min " + MoneyUtil.format(BankAccount.MINIMUM_DEPOSIT) + "): $");
         double amount = readDoubleInput();
         bankingService.deposit(amount);
-        System.out.printf("\n✅ Successfully deposited %s. New Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
+        System.out.println("\n" + ConsoleColor.green(String.format(
+                "Successfully deposited %s. New Balance: %s",
+                MoneyUtil.format(amount),
+                MoneyUtil.format(bankingService.checkBalance())
+        )));
     }
 
     private void handleWithdrawal() {
@@ -372,20 +403,24 @@ public class App {
         double amount = readDoubleInput();
         double fee = bankingService.calculateWithdrawalFee(amount);
         double totalDebit = amount + fee;
-        System.out.println("\nWithdrawal summary:");
+        System.out.println("\n" + ConsoleColor.cyan("Withdrawal summary:"));
         System.out.println("   Amount: " + MoneyUtil.format(amount));
         System.out.println("   Service fee: " + MoneyUtil.format(fee));
         System.out.println("   Total debit: " + MoneyUtil.format(totalDebit));
         System.out.print("Proceed with withdrawal? 1. Proceed, 2. Cancel: ");
         String confirmation = getValidMenuChoice("");
         if (!"1".equals(confirmation)) {
-            System.out.println("\nWithdrawal cancelled.");
+            System.out.println("\n" + ConsoleColor.yellow("Withdrawal cancelled."));
             return;
         }
         System.out.print("Enter current 4-digit PIN: ");
         String pin = scanner.nextLine().trim();
         bankingService.withdraw(amount, pin);
-        System.out.printf("\n✅ Successfully withdrew %s. Remaining Balance: %s%n", MoneyUtil.format(amount), MoneyUtil.format(bankingService.checkBalance()));
+        System.out.println("\n" + ConsoleColor.green(String.format(
+                "Successfully withdrew %s. Remaining Balance: %s",
+                MoneyUtil.format(amount),
+                MoneyUtil.format(bankingService.checkBalance())
+        )));
     }
 
     private void handleTransfer() {
@@ -395,14 +430,14 @@ public class App {
         double amount = readDoubleInput();
         double fee = bankingService.calculateTransferFee(amount);
         double totalDebit = amount + fee;
-        System.out.println("\nTransfer summary:");
+        System.out.println("\n" + ConsoleColor.cyan("Transfer summary:"));
         System.out.println("   Amount: " + MoneyUtil.format(amount));
         System.out.println("   Service fee: " + MoneyUtil.format(fee));
         System.out.println("   Total debit: " + MoneyUtil.format(totalDebit));
         System.out.printf("Send to account %s? 1. Proceed, 2. Cancel: ", targetAccountNumber);
         String confirmation = getValidMenuChoice("");
         if (!"1".equals(confirmation)) {
-            System.out.println("\nℹ️ Transfer cancelled.");
+            System.out.println("\n" + ConsoleColor.yellow("Transfer cancelled."));
             return;
         }
 
@@ -410,29 +445,37 @@ public class App {
         String pin = scanner.nextLine().trim();
         try {
             bankingService.transfer(targetAccountNumber, amount, pin);
-            System.out.printf("\n✅ Successfully transferred %s to account %s. New Balance: %s%n",
+            System.out.println("\n" + ConsoleColor.green(String.format(
+                    "Successfully transferred %s to account %s. New Balance: %s",
                     MoneyUtil.format(amount), targetAccountNumber,
-                    MoneyUtil.format(bankingService.checkBalance()));
+                    MoneyUtil.format(bankingService.checkBalance())
+            )));
         } catch (RuntimeException e) {
-            System.out.println("\n❌ " + e.getMessage());
+            System.out.println("\n" + ConsoleColor.red(e.getMessage()));
         }
     }
 
     private void handleCheckBalance() {
         double balance = bankingService.checkBalance();
-        System.out.printf("\n💰 Current Active Balance: %s%n", MoneyUtil.format(balance));
+        System.out.println("\n" + ConsoleColor.yellow(
+                "Current Active Balance: " + MoneyUtil.format(balance)
+        ));
     }
 
     private void handleTransactionHistory() {
         boolean ledgerMenuOpen = true;
         while (ledgerMenuOpen) {
-            System.out.println("\n========== TRANSACTION LEDGER FILTERS ==========");
+            System.out.println("\n" + ConsoleColor.cyan(
+                    "========== TRANSACTION LEDGER FILTERS =========="
+            ));
             System.out.println("1. Quick Mini-Statement (Recent Transactions)");
             System.out.println("2. Filter by Duration");
             System.out.println("3. Filter by Type");
             System.out.println("4. Combined Filter (Type + Duration)");
             System.out.println("5. Back to Home");
-            System.out.println("================================================");
+            System.out.println(ConsoleColor.cyan(
+                    "================================================"
+            ));
 
             String choice = getValidMenuChoice("Select an option (1-5): ");
             switch (choice) {
@@ -441,9 +484,9 @@ public class App {
                 case "3" -> handleTransactionTypeHistoryFilter();
                 case "4" -> handleCombinedHistoryFilter();
                 case "5" -> ledgerMenuOpen = false;
-                default -> System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 5."
-                );
+                default -> System.out.println("\n" + ConsoleColor.red(
+                        "Invalid choice! Please select an option between 1 and 5."
+                ));
             }
         }
     }
@@ -451,12 +494,16 @@ public class App {
     private void handleMiniStatementMenu() {
         boolean miniStatementMenuOpen = true;
         while (miniStatementMenuOpen) {
-            System.out.println("\n========== MINI-STATEMENT OPTIONS ==========");
+            System.out.println("\n" + ConsoleColor.cyan(
+                    "========== MINI-STATEMENT OPTIONS =========="
+            ));
             System.out.println("1. Last 5 Transactions");
             System.out.println("2. Last 10 Transactions");
             System.out.println("3. Custom Number of Recent Transactions");
             System.out.println("4. Back");
-            System.out.println("============================================");
+            System.out.println(ConsoleColor.cyan(
+                    "============================================"
+            ));
 
             String choice = getValidMenuChoice("Select an option (1-4): ");
             switch (choice) {
@@ -464,9 +511,9 @@ public class App {
                 case "2" -> displayMiniStatement(10);
                 case "3" -> displayMiniStatement(promptForMiniStatementCount());
                 case "4" -> miniStatementMenuOpen = false;
-                default -> System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 4."
-                );
+                default -> System.out.println("\n" + ConsoleColor.red(
+                        "Invalid choice! Please select an option between 1 and 4."
+                ));
             }
         }
     }
@@ -486,14 +533,20 @@ public class App {
     private void displayMiniStatement(int count) {
         List<Transaction> history = bankingService.getMiniStatement(count);
         if (history.isEmpty()) {
-            System.out.println("\nℹ️ No recent transactions found for this account.");
+            System.out.println("\n" + ConsoleColor.yellow(
+                    "No recent transactions found for this account."
+            ));
             return;
         }
 
-        System.out.println("\n=== MINI-STATEMENT (LAST " + count + " TRANSACTIONS) ===");
+        System.out.println("\n" + ConsoleColor.cyan(
+                "=== MINI-STATEMENT (LAST " + count + " TRANSACTIONS) ==="
+        ));
         printTransactionColumns();
         printTransactionRows(history);
-        System.out.println("=======================================================");
+        System.out.println(ConsoleColor.cyan(
+                "======================================================="
+        ));
     }
 
     private void handleDurationHistoryFilter(TransactionType transactionType) {
@@ -511,10 +564,10 @@ public class App {
             );
             displayTransactionHistory(history);
         } catch (DateTimeParseException e) {
-            System.out.println(
-                    "\n⚠️ Invalid date format. Please use DD/MM/YYYY "
+            System.out.println("\n" + ConsoleColor.red(
+                    "Invalid date format. Please use DD/MM/YYYY "
                             + "(e.g., 6/6/2026 or 06/06/2026)."
-            );
+            ));
         }
     }
 
@@ -539,12 +592,16 @@ public class App {
     }
 
     private TransactionType promptForTransactionType() {
-        System.out.println("\n========== SELECT TRANSACTION TYPE ==========");
+        System.out.println("\n" + ConsoleColor.cyan(
+                "========== SELECT TRANSACTION TYPE =========="
+        ));
         System.out.println("1. Deposits Only");
         System.out.println("2. Withdrawals Only");
         System.out.println("3. Transfers Only");
         System.out.println("4. All Types");
-        System.out.println("=============================================");
+        System.out.println(ConsoleColor.cyan(
+                "============================================="
+        ));
 
         String choice = getValidMenuChoice("Select an option (1-4): ");
         return switch (choice) {
@@ -553,16 +610,18 @@ public class App {
             case "3" -> TransactionType.TRANSFER;
             case "4" -> TransactionType.ALL;
             default -> {
-                System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 4."
-                );
+                System.out.println("\n" + ConsoleColor.red(
+                        "Invalid choice! Please select an option between 1 and 4."
+                ));
                 yield null;
             }
         };
     }
 
     private HistoryFilterCriteria promptForDurationCriteria() {
-        System.out.println("\n========== SELECT TIME DURATION ==========");
+        System.out.println("\n" + ConsoleColor.cyan(
+                "========== SELECT TIME DURATION =========="
+        ));
         System.out.println("1. Last 1 Week");
         System.out.println("2. Last 2 Weeks");
         System.out.println("3. Last 1 Month");
@@ -572,7 +631,9 @@ public class App {
         System.out.println("7. All Time");
         System.out.println("8. Custom Last X Days");
         System.out.println("9. Custom Date Range (DD/MM/YYYY)");
-        System.out.println("==========================================");
+        System.out.println(ConsoleColor.cyan(
+                "=========================================="
+        ));
 
         String choice = getValidMenuChoice("Select an option (1-9): ");
         return switch (choice) {
@@ -585,9 +646,9 @@ public class App {
             case "8" -> getCustomLastDaysCriteria();
             case "9" -> getCustomDateRangeCriteria();
             default -> {
-                System.out.println(
-                        "\n❌ Invalid choice! Please select an option between 1 and 9."
-                );
+                System.out.println("\n" + ConsoleColor.red(
+                        "Invalid choice! Please select an option between 1 and 9."
+                ));
                 yield null;
             }
         };
@@ -646,7 +707,9 @@ public class App {
 
     private void displayTransactionHistory(List<Transaction> history) {
         if (history.isEmpty()) {
-            System.out.println("\nℹ️ No transactions found matching the selected criteria.");
+            System.out.println("\n" + ConsoleColor.yellow(
+                    "No transactions found matching the selected criteria."
+            ));
             return;
         }
         printTransactionHistory(history);
@@ -657,15 +720,24 @@ public class App {
                                          LocalDateTime endDate) {}
 
     private void printTransactionHistory(List<Transaction> history) {
-        System.out.println("\n========================= TRANSACTION AUDIT LEDGER =========================");
+        System.out.println("\n" + ConsoleColor.cyan(
+                "========================= TRANSACTION AUDIT LEDGER ========================="
+        ));
         printTransactionColumns();
         printTransactionRows(history);
-        System.out.println("============================================================================");
+        System.out.println(ConsoleColor.cyan(
+                "============================================================================"
+        ));
     }
 
     private void printTransactionColumns() {
-        System.out.printf("%-20s | %-12s | %-10s | %-15s | %-10s%n", "Timestamp", "Type", "Amount", "Result Balance", "Status");
-        System.out.println("----------------------------------------------------------------------------");
+        System.out.println(ConsoleColor.cyan(String.format(
+                "%-20s | %-12s | %-10s | %-15s | %-10s",
+                "Timestamp", "Type", "Amount", "Result Balance", "Status"
+        )));
+        System.out.println(ConsoleColor.cyan(
+                "----------------------------------------------------------------------------"
+        ));
     }
 
     private void printTransactionRows(List<Transaction> history) {
