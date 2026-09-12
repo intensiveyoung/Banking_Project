@@ -1,7 +1,6 @@
 import domain.AccountNumberGenerator;
 import domain.BankAccount;
 import domain.DurationFilter;
-import domain.InsufficientFundsException;
 import domain.SecurityQuestion;
 import domain.SecurityUtil;
 import domain.Transaction;
@@ -914,6 +913,68 @@ class AppTest {
     }
 
     @Test
+    @DisplayName("Fees: withdrawal and transfer calculations follow configured rules")
+    void calculatesConfiguredServiceFees() {
+        BankingService bankingService = new BankingService(new InMemoryBankAccountDAO());
+
+        assertEquals(1.50, bankingService.calculateWithdrawalFee(25.00));
+        assertEquals(0.50, bankingService.calculateTransferFee(25.00));
+        assertEquals(2.00, bankingService.calculateTransferFee(200.00));
+    }
+
+    @Test
+    @DisplayName("Withdrawal: total debit is deducted and the fee is recorded")
+    void withdrawalDeductsFeeAndRecordsLedgerEntry() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+
+        bankingService.withdraw(20.00);
+
+        assertEquals(78.50, bankingService.checkBalance());
+        List<Transaction> history = bankingService.getHistory();
+        assertEquals(TransactionType.WITHDRAWAL, history.get(1).getType());
+        assertEquals(20.00, history.get(1).getAmount());
+        assertEquals(TransactionType.SERVICE_FEE, history.get(2).getType());
+        assertEquals(1.50, history.get(2).getAmount());
+        assertEquals(78.50, history.get(2).getResultingBalance());
+    }
+
+    @Test
+    @DisplayName("Withdrawal: principal without enough fee coverage is rejected")
+    void withdrawalRejectsBalanceThatCannotCoverFee() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = new BankingService(accountDAO);
+        bankingService.openAccount(
+                "Fee Boundary User", 20.00, null, "1234",
+                SecurityQuestion.FIRST_PET.getText(), "Milo"
+        );
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> bankingService.withdraw(20.00)
+        );
+
+        assertEquals("Insufficient funds including service fee.", error.getMessage());
+        assertEquals(20.00, bankingService.checkBalance());
+    }
+
+    @Test
+    @DisplayName("UI Test: withdrawal confirmation shows the complete fee breakdown")
+    void withdrawalConfirmationShowsFeeBreakdown() {
+        InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
+        BankingService bankingService = createAuthenticatedService(accountDAO, null);
+        provideMockInput("2\n20\n1\n1234\n6\n3\n");
+
+        runApp(bankingService);
+
+        assertEquals(78.50, accountDAO.findAccountByNumber("1001").getBalance());
+        String output = getConsoleOutput();
+        assertTrue(output.contains("Amount: $20.00"));
+        assertTrue(output.contains("Service fee: $1.50"));
+        assertTrue(output.contains("Total debit: $21.50"));
+    }
+
+    @Test
     @DisplayName("Transfer: successful transfer updates both balances and ledger entries")
     void transferFundsSuccessfully() {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
@@ -927,10 +988,12 @@ class AppTest {
 
         bankingService.transfer(targetAccountNumber, 25.00, "1234");
 
-        assertEquals(75.00, accountDAO.findAccountByNumber(sourceAccountNumber).getBalance());
+        assertEquals(74.50, accountDAO.findAccountByNumber(sourceAccountNumber).getBalance());
         assertEquals(75.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
         assertEquals(TransactionType.TRANSFER_OUT,
                 accountDAO.getTransactionHistory(sourceAccountNumber).get(1).getType());
+        assertEquals(TransactionType.SERVICE_FEE,
+                accountDAO.getTransactionHistory(sourceAccountNumber).get(2).getType());
         assertEquals(TransactionType.TRANSFER_IN,
                 accountDAO.getTransactionHistory(targetAccountNumber).get(1).getType());
     }
@@ -949,10 +1012,12 @@ class AppTest {
 
         runApp(bankingService);
 
-        assertEquals(75.00, accountDAO.findAccountByNumber("1001").getBalance());
+        assertEquals(74.50, accountDAO.findAccountByNumber("1001").getBalance());
         assertTrue(getConsoleOutput().contains(
                 "Successfully transferred $25.00 to account " + targetAccountNumber
         ));
+        assertTrue(getConsoleOutput().contains("Service fee: $0.50"));
+        assertTrue(getConsoleOutput().contains("Total debit: $25.50"));
     }
 
     @Test
@@ -993,7 +1058,7 @@ class AppTest {
     }
 
     @Test
-    @DisplayName("Transfer: insufficient funds leave both accounts unchanged")
+    @DisplayName("Transfer: principal without enough fee coverage leaves both accounts unchanged")
     void transferRejectsInsufficientBalance() {
         InMemoryBankAccountDAO accountDAO = new InMemoryBankAccountDAO();
         BankingService bankingService = createAuthenticatedService(accountDAO, null);
@@ -1004,10 +1069,10 @@ class AppTest {
         );
         bankingService.login(sourceAccountNumber, "1234");
 
-        InsufficientFundsException error = assertThrows(InsufficientFundsException.class,
-                () -> bankingService.transfer(targetAccountNumber, 101.00, "1234"));
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> bankingService.transfer(targetAccountNumber, 100.00, "1234"));
 
-        assertEquals("Insufficient funds for this transfer.", error.getMessage());
+        assertEquals("Insufficient funds including service fee.", error.getMessage());
         assertEquals(100.00, accountDAO.findAccountByNumber(sourceAccountNumber).getBalance());
         assertEquals(50.00, accountDAO.findAccountByNumber(targetAccountNumber).getBalance());
     }
@@ -1091,6 +1156,12 @@ class AppTest {
             }
             source.transferOut(amount);
             target.transferIn(amount);
+        }
+
+        @Override
+        public void transferFunds(String sourceAcc, String targetAcc, double amount, double fee) {
+            transferFunds(sourceAcc, targetAcc, amount);
+            accounts.get(sourceAcc).chargeServiceFee(fee);
         }
 
         @Override

@@ -177,7 +177,73 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
     }
 
     @Override
+    public void withdraw(String accountNumber, double amount, double fee) {
+        String lockAccountSql = "SELECT balance FROM accounts WHERE account_number = ? FOR UPDATE";
+        String updateBalanceSql = "UPDATE accounts SET balance = ? WHERE account_number = ?";
+        String insertTransactionSql = """
+                INSERT INTO transactions (account_number, type, amount, timestamp, resulting_balance, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """;
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement lockAccount = conn.prepareStatement(lockAccountSql);
+                 PreparedStatement updateBalance = conn.prepareStatement(updateBalanceSql);
+                 PreparedStatement insertTransaction = conn.prepareStatement(insertTransactionSql)) {
+                lockAccount.setString(1, accountNumber);
+                double balance;
+                try (ResultSet resultSet = lockAccount.executeQuery()) {
+                    if (!resultSet.next()) {
+                        throw new SQLException("Account must exist to complete a withdrawal.");
+                    }
+                    balance = resultSet.getDouble("balance");
+                }
+
+                double totalDebit = amount + fee;
+                if (!Double.isFinite(totalDebit) || totalDebit > balance) {
+                    throw new SQLException("Insufficient funds including service fee.");
+                }
+
+                double balanceAfterWithdrawal = balance - amount;
+                double finalBalance = balance - totalDebit;
+                updateBalance.setDouble(1, finalBalance);
+                updateBalance.setString(2, accountNumber);
+                updateBalance.executeUpdate();
+
+                LocalDateTime timestamp = LocalDateTime.now(clock);
+                insertTransaction(
+                        insertTransaction,
+                        accountNumber,
+                        TransactionType.WITHDRAWAL,
+                        amount,
+                        timestamp,
+                        balanceAfterWithdrawal
+                );
+                insertTransaction(
+                        insertTransaction,
+                        accountNumber,
+                        TransactionType.SERVICE_FEE,
+                        fee,
+                        timestamp,
+                        finalBalance
+                );
+                conn.commit();
+            } catch (SQLException e) {
+                rollback(conn, e);
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Error withdrawing funds", e);
+        }
+    }
+
+    @Override
     public void transferFunds(String sourceAcc, String targetAcc, double amount) {
+        transferFunds(sourceAcc, targetAcc, amount, 0.00);
+    }
+
+    @Override
+    public void transferFunds(String sourceAcc, String targetAcc, double amount, double fee) {
         String lockAccountsSql = """
                 SELECT account_number, balance FROM accounts
                 WHERE account_number IN (?, ?)
@@ -210,11 +276,13 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                 if (!Double.isFinite(sourceBalance) || !Double.isFinite(targetBalance)) {
                     throw new SQLException("Both accounts must exist to complete a transfer.");
                 }
-                if (amount > sourceBalance) {
-                    throw new SQLException("Insufficient funds for this transfer.");
+                double totalDebit = amount + fee;
+                if (!Double.isFinite(totalDebit) || totalDebit > sourceBalance) {
+                    throw new SQLException("Insufficient funds including service fee.");
                 }
 
-                double newSourceBalance = sourceBalance - amount;
+                double sourceBalanceAfterTransfer = sourceBalance - amount;
+                double newSourceBalance = sourceBalance - totalDebit;
                 double newTargetBalance = targetBalance + amount;
                 updateBalance.setDouble(1, newSourceBalance);
                 updateBalance.setString(2, sourceAcc);
@@ -224,9 +292,13 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
                 updateBalance.executeUpdate();
 
                 LocalDateTime timestamp = LocalDateTime.now(clock);
-                insertTransferTransaction(insertTransaction, sourceAcc, TransactionType.TRANSFER_OUT,
-                        amount, timestamp, newSourceBalance);
-                insertTransferTransaction(insertTransaction, targetAcc, TransactionType.TRANSFER_IN,
+                insertTransaction(insertTransaction, sourceAcc, TransactionType.TRANSFER_OUT,
+                        amount, timestamp, sourceBalanceAfterTransfer);
+                if (fee > 0.00) {
+                    insertTransaction(insertTransaction, sourceAcc, TransactionType.SERVICE_FEE,
+                            fee, timestamp, newSourceBalance);
+                }
+                insertTransaction(insertTransaction, targetAcc, TransactionType.TRANSFER_IN,
                         amount, timestamp, newTargetBalance);
                 conn.commit();
             } catch (SQLException e) {
@@ -238,9 +310,9 @@ public class PostgresBankAccountDAO implements BankAccountDAO {
         }
     }
 
-    private void insertTransferTransaction(PreparedStatement statement, String accountNumber,
-                                           TransactionType type, double amount,
-                                           LocalDateTime timestamp, double resultingBalance)
+    private void insertTransaction(PreparedStatement statement, String accountNumber,
+                                   TransactionType type, double amount,
+                                   LocalDateTime timestamp, double resultingBalance)
             throws SQLException {
         statement.setString(1, accountNumber);
         statement.setString(2, type.name());
