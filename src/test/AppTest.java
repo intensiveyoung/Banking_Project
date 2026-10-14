@@ -12,6 +12,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import repository.BankAccountDAO;
 import service.BankingService;
+import util.ConsoleColor;
+import util.InputUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -98,6 +101,28 @@ class AppTest {
                 "Milo"
         );
         return bankingService;
+    }
+
+    @Test
+    void maskedFallbackPreservesFollowingInputAndDoesNotPrintPin() {
+        try (Scanner input = new Scanner(" 8462 \r\nRESET\r\n6\r\n")) {
+            assertEquals("8462", InputUtils.readMaskedPin(input, "PIN: "));
+            assertEquals("RESET", InputUtils.readMaskedPin(input, "Recovery: "));
+            assertEquals("6", input.nextLine());
+        }
+        assertEquals("PIN: ******" + System.lineSeparator()
+                + "Recovery: *****" + System.lineSeparator(), getConsoleOutput());
+        assertFalse(getConsoleOutput().contains("8462"));
+        assertFalse(getConsoleOutput().contains("RESET"));
+    }
+
+    @Test
+    void maskedFallbackHandlesEmptyLineAndEndOfInput() {
+        try (Scanner input = new Scanner("\n")) {
+            assertEquals("", InputUtils.readMaskedPin(input, "PIN: "));
+            assertEquals("", InputUtils.readMaskedPin(input, "PIN: "));
+        }
+        assertEquals(("PIN: " + System.lineSeparator()).repeat(2), getConsoleOutput());
     }
 
     @Test
@@ -207,6 +232,19 @@ class AppTest {
         String output = getConsoleOutput();
         assertTrue(output.contains("Login successful! Welcome back, Secure User!"));
         assertTrue(output.contains("SESSION: Secure User (1001)"));
+        assertTrue(output.contains(ConsoleColor.cyan("SESSION: Secure User (1001)")));
+        assertTrue(output.contains("Create a 4-digit numeric PIN: ****"));
+        assertTrue(output.contains("Enter 4-digit PIN (or type 'RESET' to recover PIN): ****"));
+        assertFalse(output.contains("1234"));
+        assertFalse(output.matches("(?s).*\\p{So}.*"));
+        String[] menu = {"1. Deposit Funds", "2. Withdraw Funds", "3. Transfer Funds",
+                "4. View Transaction Ledger History", "5. Profile & Security Settings", "6. Logout"};
+        int previous = -1;
+        for (String option : menu) {
+            int position = output.indexOf(option);
+            assertTrue(position > previous);
+            previous = position;
+        }
     }
 
     @Test
@@ -273,6 +311,8 @@ class AppTest {
         String output = getConsoleOutput();
         assertTrue(output.contains("Account security enrollment completed successfully!"));
         assertTrue(output.contains("Login successful! Welcome back, Legacy User!"));
+        assertTrue(output.contains("Create a 4-digit numeric PIN: ****"));
+        assertFalse(output.contains("2468"));
     }
 
     @Test
@@ -316,6 +356,8 @@ class AppTest {
         assertTrue(output.contains("Security question: " + SecurityQuestion.FAVORITE_BOOK.getText()));
         assertTrue(output.contains("Security answer verified successfully!"));
         assertTrue(output.contains("Login successful! Welcome back, Reset User!"));
+        assertTrue(output.contains("Enter a new 4-digit PIN: ****"));
+        assertFalse(output.contains("5678"));
     }
 
     @Test
@@ -457,6 +499,9 @@ class AppTest {
         assertEquals(SecurityUtil.hashPin("5678", account.getPinSalt()), account.getPinHash());
         assertDoesNotThrow(() -> bankingService.verifySecurityAnswer("1001", "Milo"));
         assertTrue(getConsoleOutput().contains("Security PIN changed successfully!"));
+        assertTrue(getConsoleOutput().contains("Enter current 4-digit PIN: ****"));
+        assertTrue(getConsoleOutput().contains("Enter new 4-digit PIN: ****"));
+        assertFalse(getConsoleOutput().contains("5678"));
         assertTrue(getConsoleOutput().contains("Login successful! Welcome back, Profile User!"));
     }
 
@@ -971,6 +1016,8 @@ class AppTest {
         String output = getConsoleOutput();
         assertTrue(output.contains("Overdraft Protection Disclosure:"));
         assertTrue(output.contains("Overdraft Protection is now Enabled."));
+        assertTrue(output.contains("Enter current 4-digit PIN to enable overdraft protection: ****"));
+        assertFalse(output.contains("1234"));
     }
 
     @Test
@@ -1143,6 +1190,8 @@ class AppTest {
         ));
         assertTrue(getConsoleOutput().contains("Service fee: $0.50"));
         assertTrue(getConsoleOutput().contains("Total debit: $25.50"));
+        assertTrue(getConsoleOutput().contains("Enter current 4-digit PIN: ****"));
+        assertFalse(getConsoleOutput().contains("1234"));
     }
 
     @Test
@@ -1179,7 +1228,7 @@ class AppTest {
         runApp(bankingService);
 
         assertEquals(100.00, accountDAO.findAccountByNumber("1001").getBalance());
-        assertTrue(getConsoleOutput().contains("❌ Incorrect PIN."));
+        assertTrue(getConsoleOutput().contains(ConsoleColor.red("Incorrect PIN.")));
     }
 
     @Test
