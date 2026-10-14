@@ -1,6 +1,6 @@
 # Core Banking System Engine (MVP v1.0.0)
 
-A multi-tiered, robust, and highly predictable terminal-based core banking simulation engine. This application transitions from standard transient volatile JVM memory arrays into a persistent PostgreSQL database engine layout utilizing professional enterprise design patterns.
+A multi-tiered, robust and highly predictable terminal-based core banking simulation engine. This application transitions from standard transient volatile JVM memory arrays into a persistent PostgreSQL database engine layout utilizing professional enterprise design patterns.
 
 ---
 
@@ -8,7 +8,7 @@ A multi-tiered, robust, and highly predictable terminal-based core banking simul
 
 The repository is built following a clean separation of concerns, ensuring business rules remain isolated from external network data protocols:
 
-- **Domain Driven Layers:** Pure entity models (`BankAccount`, `Transaction`) holding critical banking validations, constants, and atomic invariant guardrails.
+- **Domain Driven Layers:** Pure entity models (`BankAccount`, `Transaction`) holding critical banking validations, constants and atomic invariant guardrails.
 - **Data Access Object (DAO) Pattern:** A dedicated decoupled abstraction layer interface (`BankAccountDAO`) that hides raw SQL interactions from the core business processing logic.
 - **State-Context UI Machine:** A split terminal console loop that restricts visual operation availability depending on whether a customer identity context session has been authenticated or destroyed.
 - **Synchronous Input Stream Defense:** Custom input tokenizers that protect the runtime app loop against hardware-buffered keyboard multi-tap or empty stream overflows.
@@ -30,8 +30,8 @@ The repository is built following a clean separation of concerns, ensuring busin
 Ensure your local PostgreSQL engine service is active. Spin up a new target database instance titled `banking_db`. 
 
 On cold-boot execution, the application automatically provisions the following required table structures within your cluster if they do not already exist:
-- `accounts` (Primary validation index tracking names, numbers, balances, and operational limits)
-- `transactions` (Historical audit log tracking type streams, stamps, amounts, and completion flags)
+- `accounts` (Primary validation index tracking names, numbers, balances and operational limits)
+- `transactions` (Historical audit log tracking type streams, stamps, amounts and completion flags)
 
 ### 2. Configuration Adjustments
 Open `src/repository/PostgresBankAccountDAO.java` and adjust your connection connection properties to match your local runtime environment instance configurations:
@@ -43,18 +43,23 @@ private final String password = "YOUR_DATABASE_SECURE_PASSWORD";
 ```
 
 ### 3. Execution Via JAR Binary
-Download the pre-compiled executable binary directly from the GitHub Releases timeline tab block, and execute via terminal shell command:
+Download the pre-compiled executable binary directly from the GitHub Releases timeline tab block and execute via terminal shell command:
 
 ```bash
 java -jar banking_project.jar
 ```
 
+PIN entry uses `Console.readPassword()` in a terminal, which hides typed input.
+When no console is available, the scanner fallback prints one `*` per character
+after Enter. This supports redirected tests but cannot suppress an IDE's own
+input echo. Use an external terminal for private PIN entry.
+
 ## Comprehensive Testing Suite
 
-The codebase supports automated verification layers covering business limits, system database integrations, and presentation-layer string streams. Execute the entire matrix runner via your terminal:
+The codebase supports automated verification layers covering business limits, system database integrations and presentation-layer string streams. Execute the entire matrix runner via your terminal:
 
 ```bash
-# Run all deterministic units, frozen clock simulations, and stream UI mocks
+# Run all deterministic units, frozen clock simulations and stream UI mocks
 mvn test
 ```
 

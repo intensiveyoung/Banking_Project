@@ -9,6 +9,8 @@ import domain.TransactionType;
 import service.BankingService;
 import util.ConsoleColor;
 
+import static util.InputUtils.readMaskedPin;
+
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -222,8 +224,8 @@ public class App {
     }
 
     private void handleSecuredAccountLogin(BankAccount account) {
-        System.out.print("Enter 4-digit PIN (or type 'RESET' to recover PIN): ");
-        String pinOrReset = scanner.nextLine().trim();
+        String pinOrReset = readMaskedPin(scanner,
+                "Enter 4-digit PIN (or type 'RESET' to recover PIN): ");
 
         if (!pinOrReset.equalsIgnoreCase("RESET")) {
             bankingService.login(account.getAccountNumber(), pinOrReset);
@@ -236,15 +238,13 @@ public class App {
         bankingService.verifySecurityAnswer(account.getAccountNumber(), securityAnswer);
         System.out.println("\n" + ConsoleColor.green("Security answer verified successfully!"));
 
-        System.out.print("Enter a new 4-digit PIN: ");
-        String newPin = scanner.nextLine().trim();
+        String newPin = readMaskedPin(scanner, "Enter a new 4-digit PIN: ");
         bankingService.resetPin(account.getAccountNumber(), securityAnswer, newPin);
         bankingService.login(account.getAccountNumber(), newPin);
     }
 
     private SecuritySetup promptForSecuritySetup(String pinPrompt) {
-        System.out.print(pinPrompt);
-        String pin = scanner.nextLine().trim();
+        String pin = readMaskedPin(scanner, pinPrompt);
 
         System.out.println(ConsoleColor.cyan("Select a security question:"));
         SecurityQuestion[] questions = SecurityQuestion.values();
@@ -344,10 +344,8 @@ public class App {
     }
 
     private void handlePinChange() {
-        System.out.print("Enter current 4-digit PIN: ");
-        String currentPin = scanner.nextLine().trim();
-        System.out.print("Enter new 4-digit PIN: ");
-        String newPin = scanner.nextLine().trim();
+        String currentPin = readMaskedPin(scanner, "Enter current 4-digit PIN: ");
+        String newPin = readMaskedPin(scanner, "Enter new 4-digit PIN: ");
 
         bankingService.changePin(currentPin, newPin);
         System.out.println("\n" + ConsoleColor.green("Security PIN changed successfully!"));
@@ -369,9 +367,8 @@ public class App {
         System.out.println(ConsoleColor.yellow(
                 "Current status: " + (enable ? "Disabled" : "Enabled")
         ));
-        System.out.print("Enter current 4-digit PIN to "
+        String pin = readMaskedPin(scanner, "Enter current 4-digit PIN to "
                 + (enable ? "enable" : "disable") + " overdraft protection: ");
-        String pin = scanner.nextLine().trim();
         bankingService.toggleOverdraft(enable, pin);
         String updatedStatus = enable ? "Enabled" : "Disabled";
         System.out.println("\n" + ConsoleColor.green(
@@ -413,8 +410,7 @@ public class App {
             System.out.println("\n" + ConsoleColor.yellow("Withdrawal cancelled."));
             return;
         }
-        System.out.print("Enter current 4-digit PIN: ");
-        String pin = scanner.nextLine().trim();
+        String pin = readMaskedPin(scanner, "Enter current 4-digit PIN: ");
         bankingService.withdraw(amount, pin);
         System.out.println("\n" + ConsoleColor.green(String.format(
                 "Successfully withdrew %s. Remaining Balance: %s",
@@ -441,8 +437,7 @@ public class App {
             return;
         }
 
-        System.out.print("Enter current 4-digit PIN: ");
-        String pin = scanner.nextLine().trim();
+        String pin = readMaskedPin(scanner, "Enter current 4-digit PIN: ");
         try {
             bankingService.transfer(targetAccountNumber, amount, pin);
             System.out.println("\n" + ConsoleColor.green(String.format(
